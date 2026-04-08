@@ -9,19 +9,32 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const supabase = createClient();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
-    setLoading(false);
-    if (!error) setSent(true);
+    setError(null);
+
+    try {
+      const { error: authError } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (authError) {
+        setError(authError.message);
+      } else {
+        setSent(true);
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -38,7 +51,8 @@ export default function LoginPage() {
           <div className="bg-card border border-border rounded-lg p-6 text-center space-y-2">
             <p className="text-foreground font-medium">Lien envoyé !</p>
             <p className="text-muted-foreground text-sm">
-              Vérifiez votre boîte mail et cliquez sur le lien pour vous connecter.
+              Vérifiez votre boîte mail pour <strong>{email}</strong> et
+              cliquez sur le lien pour vous connecter.
             </p>
           </div>
         ) : (
@@ -51,6 +65,13 @@ export default function LoginPage() {
               required
               className="h-12 bg-card border-border"
             />
+
+            {error && (
+              <div className="bg-wrong/10 border border-wrong/20 rounded-lg px-4 py-3">
+                <p className="text-sm text-wrong">{error}</p>
+              </div>
+            )}
+
             <Button
               type="submit"
               disabled={loading}
