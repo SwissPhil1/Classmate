@@ -201,24 +201,6 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
                 </select>
               </div>
 
-              {/* Chapter */}
-              <div className="space-y-1.5">
-                <label className="text-sm text-muted-foreground">
-                  Chapitre
-                </label>
-                <select
-                  value={chapterId}
-                  onChange={(e) => setChapterId(e.target.value)}
-                  className="w-full h-12 bg-background border border-border rounded-lg px-3 text-sm text-foreground"
-                >
-                  {chapters.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               {/* Source */}
               <div className="space-y-1.5">
                 <label className="text-sm text-muted-foreground">Source</label>
