@@ -1,0 +1,86 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { callClaude, parseClaudeJSON, queueBriefGeneration } from '@/lib/claude'
+import type { QAPair } from '@/lib/types'
+
+export async function POST(request: NextRequest) {
+  try {
+    const { entity_name, entity_type, chapter, topic } = await request.json()
+
+    const result = await queueBriefGeneration(async () => {
+      const systemPrompt = `Tu es un radiologue expert et coach pour l'examen FMH2 suisse. Génère un brief d'étude pour: ${entity_name} (chapitre: ${chapter}, thème: ${topic}, type: ${entity_type}).
+
+IMPORTANT: Tout le contenu en français.
+Contexte FMH2 suisse — niveau attendu: médecin spécialiste en formation dernière année.
+
+Format selon entity_type:
+
+=== single_diagnosis ===
+## Vue d'ensemble
+2-3 phrases: qu'est-ce, patient typique, pourquoi cet aspect radiologique
+
+## Matrice des modalités
+Tableau markdown: Modalité | Signes clés
+(CT, IRM T1, IRM T2/FLAIR, Post-contraste, Diffusion, + séquences spécifiques si pertinent)
+
+## L'Aunt Minnie
+Signe pathognomonique unique si existe.
+Sinon: 'Aucun signe pathognomonique unique — diagnostic par constellation de signes.'
+
+## Template de présentation orale (FMH2)
+Script exact en français:
+1. Description technique
+2. Analyse systématique
+3. Conclusion diagnostique
+4. Diagnostics différentiels (top 3, un différenciateur par ligne)
+5. Prise en charge
+
+## Perle protocolaire
+(Inclure seulement si pertinent: quel protocole choisir et pourquoi)
+
+## Chiffres clés
+(Inclure seulement si pertinent: mesures, critères, seuils)
+
+=== ddx_pair ===
+Tableau comparatif côte à côte + 'Le piège classique'
+
+=== concept ===
+Explication + 'Ce que l'examen teste vraiment'
+
+=== protocol ===
+Indications + Technique + 'Ce qu'on cherche' + Pièges
+
+Temps de lecture total: moins de 5 minutes.
+
+APRÈS le contenu markdown, ajoute une section séparée avec EXACTEMENT ce format:
+---QA_JSON---
+[{"question": "...", "model_answer": "...", "key_points": ["..."]}, ...]
+---END_QA_JSON---
+
+Les 3 paires Q&A doivent être de style examen FMH2, en français.`
+
+      const userMessage = `Génère le brief complet pour: ${entity_name} (${entity_type})`
+
+      const response = await callClaude(systemPrompt, userMessage, 6144)
+
+      // Split content and QA pairs
+      const qaMatch = response.match(/---QA_JSON---\s*([\s\S]*?)\s*---END_QA_JSON---/)
+      let qa_pairs: QAPair[] = []
+      let content = response
+
+      if (qaMatch) {
+        content = response.substring(0, response.indexOf('---QA_JSON---')).trim()
+        qa_pairs = parseClaudeJSON<QAPair[]>(qaMatch[1])
+      }
+
+      return { content, qa_pairs }
+    })
+
+    return NextResponse.json(result)
+  } catch (error) {
+    console.error('Brief generation error:', error)
+    return NextResponse.json(
+      { error: 'Génération indisponible temporairement' },
+      { status: 500 }
+    )
+  }
+}
