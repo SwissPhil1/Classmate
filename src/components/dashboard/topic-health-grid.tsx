@@ -36,21 +36,8 @@ export function TopicHealthGrid({ topics, onTopicClick }: TopicHealthGridProps) 
               <span className="text-sm font-medium text-foreground flex-1 truncate">
                 {topic.name}
               </span>
-              <span className="text-xs text-muted-foreground">
-                {chapters.length} ch.
-              </span>
             </div>
 
-            {/* Chapter health pills */}
-            <div className="flex flex-wrap gap-1 mt-2 ml-6">
-              {chapters.map(({ chapter, health }) => (
-                <div
-                  key={chapter.id}
-                  className={`w-2 h-2 rounded-full ${HEALTH_COLORS[health]}`}
-                  title={chapter.name}
-                />
-              ))}
-            </div>
           </button>
         ))}
       </div>
