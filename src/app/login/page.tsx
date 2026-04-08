@@ -18,6 +18,15 @@ export default function LoginPage() {
     setError(null);
 
     try {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      if (!url || url === '' || url.includes('placeholder')) {
+        setError(
+          "Variables d'environnement manquantes. Redéployez après avoir ajouté NEXT_PUBLIC_SUPABASE_URL dans Vercel."
+        );
+        setLoading(false);
+        return;
+      }
+
       const { error: authError } = await supabase.auth.signInWithOtp({
         email,
         options: {
@@ -31,7 +40,8 @@ export default function LoginPage() {
         setSent(true);
       }
     } catch (err) {
-      setError(String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Erreur de connexion: ${msg}. URL Supabase: ${process.env.NEXT_PUBLIC_SUPABASE_URL || 'NON DÉFINIE'}`);
     } finally {
       setLoading(false);
     }
