@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 
 export default function WeeklyPage() {
   const router = useRouter();
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   const { settings } = useSettings();
   const supabase = createClient();
 
@@ -25,6 +25,10 @@ export default function WeeklyPage() {
   const week = settings?.week_start_date
     ? weekNumber(settings.week_start_date)
     : 1;
+
+  useEffect(() => {
+    if (!userLoading && !user) router.push("/login");
+  }, [userLoading, user, router]);
 
   useEffect(() => {
     if (!user) return;
@@ -87,7 +91,7 @@ export default function WeeklyPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
-        {loading ? (
+        {loading || userLoading || !user ? (
           <div className="animate-pulse text-muted-foreground text-center py-12">
             Chargement...
           </div>

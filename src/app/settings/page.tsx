@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
@@ -12,11 +12,15 @@ import { ArrowLeft, Download, Sun, Moon, LogOut } from "lucide-react";
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   const { settings, updateSettings } = useSettings();
   const { theme, setTheme } = useTheme();
   const supabase = createClient();
   const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    if (!userLoading && !user) router.push("/login");
+  }, [userLoading, user, router]);
 
   const writtenDays = settings
     ? daysUntil(settings.exam_date_written)
@@ -123,6 +127,14 @@ export default function SettingsPage() {
     await supabase.auth.signOut();
     router.push("/login");
   };
+
+  if (userLoading || !user) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-pulse text-muted-foreground">Chargement...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

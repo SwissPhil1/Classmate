@@ -18,10 +18,14 @@ const HEALTH_COLORS = {
 
 export default function TopicsPage() {
   const router = useRouter();
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   const supabase = createClient();
   const [topics, setTopics] = useState<TopicHealth[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!userLoading && !user) router.push("/login");
+  }, [userLoading, user, router]);
 
   useEffect(() => {
     if (!user) return;
@@ -45,7 +49,7 @@ export default function TopicsPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6">
-        {loading ? (
+        {loading || userLoading || !user ? (
           <div className="animate-pulse text-muted-foreground text-center py-12">
             Chargement...
           </div>

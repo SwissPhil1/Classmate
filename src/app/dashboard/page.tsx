@@ -36,6 +36,13 @@ export default function DashboardPage() {
   const [resumeSession, setResumeSession] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!userLoading && !user) {
+      router.push("/login");
+    }
+  }, [userLoading, user, router]);
+
   useEffect(() => {
     if (!user) return;
 
@@ -69,7 +76,7 @@ export default function DashboardPage() {
     router.push(`/session?${params.toString()}`);
   };
 
-  if (userLoading || loading) {
+  if (userLoading || !user || loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-pulse text-muted-foreground">Chargement...</div>

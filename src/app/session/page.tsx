@@ -35,9 +35,13 @@ import { X } from "lucide-react";
 function SessionContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   const { settings } = useSettings();
   const supabase = createClient();
+
+  useEffect(() => {
+    if (!userLoading && !user) router.push("/login");
+  }, [userLoading, user, router]);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -330,7 +334,7 @@ function SessionContent() {
     router.push("/dashboard");
   };
 
-  if (loading) {
+  if (loading || userLoading || !user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-3">

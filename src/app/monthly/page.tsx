@@ -11,13 +11,17 @@ import { Button } from "@/components/ui/button";
 
 export default function MonthlyPage() {
   const router = useRouter();
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   const supabase = createClient();
 
   const [results, setResults] = useState<TestResultRecord[]>([]);
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
+
+  useEffect(() => {
+    if (!userLoading && !user) router.push("/login");
+  }, [userLoading, user, router]);
 
   useEffect(() => {
     if (!user) return;
@@ -88,7 +92,7 @@ export default function MonthlyPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
-        {loading ? (
+        {loading || userLoading || !user ? (
           <div className="animate-pulse text-muted-foreground text-center py-12">
             Chargement...
           </div>

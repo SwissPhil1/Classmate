@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useUser } from "@/hooks/use-user";
 import { getEntity, getBrief } from "@/lib/supabase/queries";
 import type { Entity, Brief } from "@/lib/types";
 import { BriefContent } from "@/components/brief/brief-content";
@@ -13,8 +14,13 @@ import Link from "next/link";
 export default function BriefPage() {
   const params = useParams();
   const router = useRouter();
+  const { user, loading: userLoading } = useUser();
   const supabase = createClient();
   const entityId = params.entityId as string;
+
+  useEffect(() => {
+    if (!userLoading && !user) router.push("/login");
+  }, [userLoading, user, router]);
 
   const [entity, setEntity] = useState<Entity | null>(null);
   const [brief, setBrief] = useState<Brief | null>(null);
@@ -73,7 +79,7 @@ export default function BriefPage() {
     ? `https://radiopaedia.org/search?utf8=%E2%9C%93&q=${encodeURIComponent(entity.name)}&scope=all`
     : "";
 
-  if (loading) {
+  if (loading || userLoading || !user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-pulse text-muted-foreground">Chargement...</div>
