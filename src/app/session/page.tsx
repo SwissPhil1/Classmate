@@ -126,11 +126,55 @@ function SessionContent() {
     loadQuestion(item);
   }, [currentIndex, queue, loading]);
 
+  const cacheQuestionInQueue = async (
+    index: number,
+    q: { type: QuestionType; question: string; model_answer: string; key_points: string[] }
+  ) => {
+    const updatedQueue = [...queue];
+    updatedQueue[index] = {
+      ...updatedQueue[index],
+      question: q.question,
+      model_answer: q.model_answer,
+      key_points: q.key_points,
+      question_type: q.type,
+    };
+    setQueue(updatedQueue);
+
+    if (user && sessionId) {
+      await upsertSessionState(supabase, {
+        user_id: user.id,
+        session_id: sessionId,
+        current_question_index: index,
+        queue: updatedQueue,
+        answers_so_far: answers,
+      });
+    }
+  };
+
   const loadQuestion = async (item: QueueItem) => {
     setQuestionLoading(true);
     try {
       const entity = await getEntity(supabase, item.entity_id);
       setCurrentEntity(entity);
+
+      // If question was already generated and cached, reuse it
+      if (item.question && item.model_answer) {
+        setCurrentQuestion({
+          type: item.question_type || "B_open",
+          question: item.question,
+          model_answer: item.model_answer,
+          key_points: item.key_points || [],
+        });
+        setQuestionLoading(false);
+        return;
+      }
+
+      let generated: {
+        type: QuestionType;
+        question: string;
+        model_answer: string;
+        key_points: string[];
+      } | null = null;
 
       if (item.is_pretest) {
         // Generate pretest question
@@ -147,12 +191,12 @@ function SessionContent() {
         const data = await res.json();
         if (data.error) throw new Error(data.error);
 
-        setCurrentQuestion({
+        generated = {
           type: data.type === "A" ? "A_typed" : "B_open",
           question: data.question,
           model_answer: data.model_answer,
           key_points: data.key_points,
-        });
+        };
       } else if (entity.cycle_count < 3 && entity.brief?.qa_pairs) {
         // Cycle 1: use brief's Q&A pairs
         const qaPairs = entity.brief.qa_pairs as QAPair[];
@@ -160,15 +204,14 @@ function SessionContent() {
         const pair = qaPairs[pairIndex];
 
         if (pair) {
-          // Determine type based on entity type
           const type: QuestionType =
             entity.entity_type === "ddx_pair" ? "B_open" : "A_typed";
-          setCurrentQuestion({
+          generated = {
             type,
             question: pair.question,
             model_answer: pair.model_answer,
             key_points: pair.key_points,
-          });
+          };
         }
       } else {
         // Cycle 2+: generate new question
@@ -193,16 +236,21 @@ function SessionContent() {
           B: "B_open",
           C: "C_freeresponse",
         };
-        setCurrentQuestion({
+        generated = {
           type: typeMap[data.type] || "A_typed",
           question: data.question,
           model_answer: data.model_answer,
           key_points: data.key_points,
-        });
+        };
+      }
+
+      if (generated) {
+        setCurrentQuestion(generated);
+        // Cache in queue so reloads don't regenerate
+        await cacheQuestionInQueue(currentIndex, generated);
       }
     } catch (err) {
       console.error("Load question error:", err);
-      // Fallback: skip this question
       setCurrentQuestion(null);
     } finally {
       setQuestionLoading(false);
