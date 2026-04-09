@@ -63,7 +63,7 @@ Script exact en français:
 ## Mnémonique & DDx structuré
 Si un moyen mnémotechnique RECONNU existe pour les diagnostics différentiels de cette entité ou de sa localisation, l'inclure obligatoirement.
 Exemples de mnémoniques reconnues en radiologie:
-- MEGA (tumeurs fosse postérieure pédiatrique): Medulloblastome, Ependymome, Gliome/astrocytome pilocytique, ATRT
+- MEGA (tumeurs fosse postérieure pédiatrique): Medulloblastome, Ependymome, Gliome du tronc cérébral, Astrocytome pilocytique
 - FEGNOMASHIC (nécrose avasculaire)
 - VINDICATE (cadre DDx systématique: Vasculaire, Infectieux, Néoplasique, Dégénératif, Inflammatoire/Iatrogène, Congénital, Autoimmun, Traumatique, Endocrinien/métabolique)
 - TORCH (infections congénitales)
