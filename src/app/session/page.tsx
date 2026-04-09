@@ -177,26 +177,48 @@ function SessionContent() {
       } | null = null;
 
       if (item.is_pretest) {
-        // Generate pretest question
-        const res = await fetch("/api/claude/pretest", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            entity_name: entity.name,
-            entity_type: entity.entity_type,
-            chapter: entity.chapter?.name,
-            topic: entity.chapter?.topic?.name,
-          }),
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
+        // Check if pretest was already generated and stored on entity
+        if (entity.pretest_question) {
+          const pt = entity.pretest_question;
+          generated = {
+            type: (pt.type === "A" ? "A_typed" : "B_open") as QuestionType,
+            question: pt.question,
+            model_answer: pt.model_answer,
+            key_points: pt.key_points,
+          };
+        } else {
+          // Generate pretest question
+          const res = await fetch("/api/claude/pretest", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              entity_name: entity.name,
+              entity_type: entity.entity_type,
+              chapter: entity.chapter?.name,
+              topic: entity.chapter?.topic?.name,
+              reference_text: entity.reference_text,
+            }),
+          });
+          const data = await res.json();
+          if (data.error) throw new Error(data.error);
 
-        generated = {
-          type: data.type === "A" ? "A_typed" : "B_open",
-          question: data.question,
-          model_answer: data.model_answer,
-          key_points: data.key_points,
-        };
+          generated = {
+            type: data.type === "A" ? "A_typed" : "B_open",
+            question: data.question,
+            model_answer: data.model_answer,
+            key_points: data.key_points,
+          };
+
+          // Store on entity permanently so it never regenerates
+          await updateEntity(supabase, entity.id, {
+            pretest_question: {
+              type: data.type,
+              question: data.question,
+              model_answer: data.model_answer,
+              key_points: data.key_points,
+            },
+          } as Partial<Entity>);
+        }
       } else if (entity.cycle_count < 3 && entity.brief?.qa_pairs) {
         // Cycle 1: use brief's Q&A pairs
         const qaPairs = entity.brief.qa_pairs as QAPair[];
@@ -305,6 +327,7 @@ function SessionContent() {
             entity_type: currentEntity.entity_type,
             chapter: currentEntity.chapter?.name,
             topic: currentEntity.chapter?.topic?.name,
+            reference_text: currentEntity.reference_text,
           }),
         })
           .then((res) => res.json())

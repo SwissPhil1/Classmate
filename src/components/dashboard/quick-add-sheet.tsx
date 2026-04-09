@@ -40,6 +40,8 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
   const [sourceId, setSourceId] = useState("");
   const [customSourceName, setCustomSourceName] = useState("");
   const [showCustomSource, setShowCustomSource] = useState(false);
+  const [referenceText, setReferenceText] = useState("");
+  const [showReference, setShowReference] = useState(false);
 
   const [topics, setTopics] = useState<Topic[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
@@ -98,6 +100,7 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
         name: name.trim(),
         entity_type: entityType,
         source_id: finalSourceId,
+        reference_text: referenceText.trim() || null,
       });
 
       toast.success("Entité ajoutée — pré-test demain matin");
@@ -107,6 +110,8 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
       setEntityType("single_diagnosis");
       setShowCustomSource(false);
       setCustomSourceName("");
+      setReferenceText("");
+      setShowReference(false);
       onClose();
     } catch (err) {
       console.error("Quick add error:", err);
@@ -199,6 +204,26 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              {/* Reference text (Top 3, etc.) */}
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowReference(!showReference)}
+                  className="text-sm text-teal hover:underline"
+                >
+                  {showReference ? "− Masquer le texte de référence" : "+ Ajouter du texte de référence (Top 3, etc.)"}
+                </button>
+                {showReference && (
+                  <textarea
+                    value={referenceText}
+                    onChange={(e) => setReferenceText(e.target.value)}
+                    placeholder="Collez ici le contenu du livre (DDx, perles, diagnostic...)"
+                    rows={6}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground resize-y"
+                  />
+                )}
               </div>
 
               {/* Source */}

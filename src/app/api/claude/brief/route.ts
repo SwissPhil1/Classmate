@@ -4,13 +4,18 @@ import type { QAPair } from '@/lib/types'
 
 export async function POST(request: NextRequest) {
   try {
-    const { entity_name, entity_type, chapter, topic } = await request.json()
+    const { entity_name, entity_type, chapter, topic, reference_text } = await request.json()
 
     const result = await queueBriefGeneration(async () => {
+      const referenceBlock = reference_text
+        ? `\n\nCONTENU DE RÉFÉRENCE DU LIVRE (utilise ce contenu comme base principale, traduis en français, complète avec tes connaissances):\n${reference_text}`
+        : ''
+
       const systemPrompt = `Tu es un radiologue expert et coach pour l'examen FMH2 suisse. Génère un brief d'étude pour: ${entity_name} (chapitre: ${chapter}, thème: ${topic}, type: ${entity_type}).
 
 IMPORTANT: Tout le contenu en français.
 Contexte FMH2 suisse — niveau attendu: médecin spécialiste en formation dernière année.
+${referenceBlock}
 
 Format selon entity_type:
 
@@ -34,6 +39,9 @@ Script exact en français:
 4. Diagnostics différentiels (top 3, un différenciateur par ligne)
 5. Prise en charge
 
+## Perles
+Points cliniques et radiologiques essentiels à retenir — les pièges classiques, les associations à ne pas manquer, les astuces mnémotechniques.
+
 ## Perle protocolaire
 (Inclure seulement si pertinent: quel protocole choisir et pourquoi)
 
@@ -41,13 +49,20 @@ Script exact en français:
 (Inclure seulement si pertinent: mesures, critères, seuils)
 
 === ddx_pair ===
-Tableau comparatif côte à côte + 'Le piège classique'
+## Tableau comparatif
+Tableau côte à côte des critères de différenciation (imagerie, clinique, épidémiologie)
+
+## Le piège classique
+L'erreur que tout le monde fait + comment l'éviter
+
+## Perles
+Points essentiels à retenir pour chaque diagnostic
 
 === concept ===
-Explication + 'Ce que l'examen teste vraiment'
+Explication + 'Ce que l'examen teste vraiment' + Perles
 
 === protocol ===
-Indications + Technique + 'Ce qu'on cherche' + Pièges
+Indications + Technique + 'Ce qu'on cherche' + Pièges + Perles
 
 Temps de lecture total: moins de 5 minutes.
 
@@ -56,7 +71,7 @@ APRÈS le contenu markdown, ajoute une section séparée avec EXACTEMENT ce form
 [{"question": "...", "model_answer": "...", "key_points": ["..."]}, ...]
 ---END_QA_JSON---
 
-Les 3 paires Q&A doivent être de style examen FMH2, en français.`
+Les 3 paires Q&A doivent être de style examen FMH2, en français. Les réponses modèles doivent être COMPLÈTES et exhaustives.`
 
       const userMessage = `Génère le brief complet pour: ${entity_name} (${entity_type})`
 

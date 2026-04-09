@@ -47,6 +47,8 @@ export interface Entity {
   difficulty_level: DifficultyLevel
   image_url: string | null
   notes: string | null
+  reference_text: string | null
+  pretest_question: { type: string; question: string; model_answer: string; key_points: string[] } | null
   // Joined fields
   chapter?: Chapter
   topic?: Topic
