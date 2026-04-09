@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { useSettings } from "@/hooks/use-settings";
+import { toast } from "sonner";
 import {
   assembleQueue,
   createSession,
@@ -58,6 +59,7 @@ function SessionContent() {
   const [questionLoading, setQuestionLoading] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [direction, setDirection] = useState(1);
+  const [questionError, setQuestionError] = useState(false);
 
   // Initialize session
   useEffect(() => {
@@ -274,6 +276,7 @@ function SessionContent() {
     } catch (err) {
       console.error("Load question error:", err);
       setCurrentQuestion(null);
+      setQuestionError(true);
     } finally {
       setQuestionLoading(false);
     }
@@ -340,9 +343,12 @@ function SessionContent() {
                 qa_pairs: briefData.qa_pairs,
                 difficulty_level: currentEntity.difficulty_level,
               });
+              toast.success("Brief généré");
             }
           })
-          .catch(console.error);
+          .catch(() => {
+            toast.error("Erreur: brief non généré. Réessayez depuis la fiche.");
+          });
       }
 
       await updateEntity(supabase, currentEntity.id, entityUpdate as Partial<Entity>);
@@ -496,6 +502,22 @@ function SessionContent() {
               className="flex-1 flex items-center justify-center"
             >
               <div className="w-8 h-8 border-2 border-teal border-t-transparent rounded-full animate-spin" />
+            </motion.div>
+          ) : questionError ? (
+            <motion.div
+              key="error"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex-1 flex flex-col items-center justify-center gap-4 px-4"
+            >
+              <p className="text-muted-foreground text-center">Erreur de génération. Vérifiez votre connexion.</p>
+              <button
+                onClick={() => { setQuestionError(false); loadQuestion(queue[currentIndex]); }}
+                className="px-6 py-3 bg-teal text-white rounded-lg font-medium"
+              >
+                Réessayer
+              </button>
             </motion.div>
           ) : currentQuestion && currentEntity ? (
             <motion.div

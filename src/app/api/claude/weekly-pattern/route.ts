@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { callClaude } from '@/lib/claude'
+import { createClient } from '@/lib/supabase/server'
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+    }
+
     const { results, week_number, total_weeks } = await request.json()
 
     const systemPrompt = `Analyse ces résultats d'étude radiologie FMH2 pour la semaine ${week_number} sur ${total_weeks}.

@@ -1,4 +1,5 @@
-const CACHE_NAME = 'radloop-v1';
+// Bump version on each deploy to bust cache
+const CACHE_NAME = 'radloop-v2';
 const OFFLINE_URL = '/dashboard';
 
 // Assets to pre-cache

@@ -130,10 +130,7 @@ export default function MonthlyPage() {
                 Analyse mensuelle
               </h2>
               {analysis ? (
-                <div
-                  className="text-sm text-foreground leading-relaxed prose prose-invert prose-sm max-w-none"
-                  dangerouslySetInnerHTML={{ __html: analysis.replace(/\n/g, "<br>") }}
-                />
+                <pre className="whitespace-pre-wrap text-sm text-foreground">{analysis}</pre>
               ) : (
                 <Button
                   onClick={handleAnalyze}

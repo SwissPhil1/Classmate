@@ -22,7 +22,7 @@ export function TopicHealthGrid({ topics, onTopicClick }: TopicHealthGridProps) 
       <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
         Santé par thème
       </h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {topics.map(({ topic, chapters, overallHealth }) => (
           <button
             key={topic.id}

@@ -90,11 +90,11 @@ function addDays(dateStr: string, days: number): string {
 }
 
 /** Calculate days until a target date from today */
-export function daysUntil(targetDate: string): number {
-  const target = new Date(targetDate + 'T00:00:00Z')
+export function daysUntil(dateStr: string): number {
+  const target = new Date(dateStr + 'T00:00:00Z')
   const now = new Date()
-  const today = new Date(now.toISOString().split('T')[0] + 'T00:00:00Z')
-  return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  return Math.ceil((target.getTime() - todayUTC.getTime()) / (1000 * 60 * 60 * 24))
 }
 
 /** Calculate week number from a start date */

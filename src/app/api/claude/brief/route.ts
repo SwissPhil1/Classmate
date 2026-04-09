@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { callClaude, parseClaudeJSON, queueBriefGeneration } from '@/lib/claude'
 import type { QAPair } from '@/lib/types'
+import { createClient } from '@/lib/supabase/server'
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+    }
+
     const { entity_name, entity_type, chapter, topic, reference_text } = await request.json()
 
     const result = await queueBriefGeneration(async () => {

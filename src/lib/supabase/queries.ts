@@ -75,12 +75,13 @@ export async function getEntities(
   return data as Entity[]
 }
 
-export async function getEntity(supabase: SupabaseClient, entityId: string): Promise<Entity> {
-  const { data, error } = await supabase
+export async function getEntity(supabase: SupabaseClient, entityId: string, userId?: string): Promise<Entity> {
+  let query = supabase
     .from('entities')
     .select('*, chapter:chapters(*, topic:topics(*)), source:sources(*), brief:briefs(*)')
     .eq('id', entityId)
-    .single()
+  if (userId) query = query.eq('user_id', userId)
+  const { data, error } = await query.single()
   if (error) throw error
   return data as Entity
 }

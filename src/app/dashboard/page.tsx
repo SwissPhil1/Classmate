@@ -78,8 +78,21 @@ export default function DashboardPage() {
 
   if (userLoading || !user || loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-pulse text-muted-foreground">Chargement...</div>
+      <div className="min-h-screen bg-background pb-24">
+        {/* Header skeleton */}
+        <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-sm border-b border-border">
+          <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+            <h1 className="text-lg font-bold text-foreground">RadLoop</h1>
+          </div>
+        </header>
+        <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+          {/* Exam countdown skeleton */}
+          <div className="animate-pulse bg-card rounded-xl h-[100px]" />
+          {/* Today queue skeleton */}
+          <div className="animate-pulse bg-card rounded-xl h-[140px]" />
+          {/* Topic health grid skeleton */}
+          <div className="animate-pulse bg-card rounded-xl h-[320px]" />
+        </main>
       </div>
     );
   }
