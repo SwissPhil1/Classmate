@@ -153,8 +153,22 @@ function SessionContent() {
     }
   };
 
+  const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 30000) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeout);
+      return res;
+    } catch (err) {
+      clearTimeout(timeout);
+      throw err;
+    }
+  };
+
   const loadQuestion = async (item: QueueItem) => {
     setQuestionLoading(true);
+    setQuestionError(false);
     try {
       const entity = await getEntity(supabase, item.entity_id);
       setCurrentEntity(entity);
@@ -190,7 +204,7 @@ function SessionContent() {
           };
         } else {
           // Generate pretest question
-          const res = await fetch("/api/claude/pretest", {
+          const res = await fetchWithTimeout("/api/claude/pretest", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -238,8 +252,8 @@ function SessionContent() {
           };
         }
       } else {
-        // Cycle 2+: generate new question
-        const res = await fetch("/api/claude/question", {
+        // Cycle 2+ or brief not ready yet: generate fresh question
+        const res = await fetchWithTimeout("/api/claude/question", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -250,6 +264,7 @@ function SessionContent() {
             chapter: entity.chapter?.name,
             topic: entity.chapter?.topic?.name,
             exam_component: entity.chapter?.topic?.exam_component,
+            notes: entity.notes,
           }),
         });
         const data = await res.json();
@@ -403,6 +418,14 @@ function SessionContent() {
     [currentEntity, currentQuestion, sessionId, user, queue, currentIndex, answers, settings]
   );
 
+  const handleSaveNote = async (entityId: string, note: string) => {
+    try {
+      await updateEntity(supabase, entityId, { notes: note } as Partial<Entity>);
+    } catch (err) {
+      console.error("Save note error:", err);
+    }
+  };
+
   const handleAbandon = async () => {
     if (user && sessionId) {
       await deleteSessionState(supabase, user.id);
@@ -534,6 +557,7 @@ function SessionContent() {
                 question={currentQuestion}
                 isPretest={queue[currentIndex]?.is_pretest ?? false}
                 onAnswer={handleAnswer}
+                onSaveNote={handleSaveNote}
               />
             </motion.div>
           ) : null}

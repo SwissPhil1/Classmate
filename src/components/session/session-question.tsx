@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import type { Entity, QuestionType, TestResult } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Check, AlertTriangle, XCircle } from "lucide-react";
+import { Check, AlertTriangle, XCircle, StickyNote } from "lucide-react";
 
 interface SessionQuestionProps {
   entity: Entity;
@@ -17,6 +17,7 @@ interface SessionQuestionProps {
   };
   isPretest: boolean;
   onAnswer: (result: TestResult, userAnswer: string | null, feedback?: string) => void;
+  onSaveNote?: (entityId: string, note: string) => void;
 }
 
 export function SessionQuestion({
@@ -24,6 +25,7 @@ export function SessionQuestion({
   question,
   isPretest,
   onAnswer,
+  onSaveNote,
 }: SessionQuestionProps) {
   const [userAnswer, setUserAnswer] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -35,6 +37,8 @@ export function SessionQuestion({
     oral_tip: string | null;
   } | null>(null);
   const [selfFlagged, setSelfFlagged] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteText, setNoteText] = useState(entity.notes || "");
 
   const isTyped = question.type === "A_typed" || question.type === "C_freeresponse";
   const isOpen = question.type === "B_open";
@@ -78,12 +82,19 @@ export function SessionQuestion({
     if (navigator.vibrate) {
       navigator.vibrate(10);
     }
+    handleNoteSave();
     onAnswer(result, isOpen ? null : userAnswer, evaluation?.feedback);
   };
 
   const handleNext = () => {
     if (evaluation) {
       onAnswer(evaluation.result, userAnswer, evaluation.feedback);
+    }
+  };
+
+  const handleNoteSave = () => {
+    if (onSaveNote && noteText !== (entity.notes || "")) {
+      onSaveNote(entity.id, noteText);
     }
   };
 
@@ -235,8 +246,33 @@ export function SessionQuestion({
                 </div>
               )}
 
+              {/* Note/correction */}
+              {noteOpen ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Mes notes / corrections
+                  </p>
+                  <Textarea
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    onBlur={handleNoteSave}
+                    placeholder="Corriger ou compléter la réponse..."
+                    className="min-h-[80px] bg-card border-border resize-none text-sm"
+                    rows={3}
+                  />
+                </div>
+              ) : (
+                <button
+                  onClick={() => setNoteOpen(true)}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <StickyNote className="w-3.5 h-3.5" />
+                  {entity.notes ? "Modifier ma note" : "Ajouter une note"}
+                </button>
+              )}
+
               <Button
-                onClick={handleNext}
+                onClick={() => { handleNoteSave(); handleNext(); }}
                 className="w-full h-14 bg-card border border-border text-foreground font-semibold hover:bg-background"
               >
                 Suivant
@@ -254,6 +290,31 @@ export function SessionQuestion({
                   {question.model_answer}
                 </p>
               </div>
+
+              {/* Note/correction */}
+              {noteOpen ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Mes notes / corrections
+                  </p>
+                  <Textarea
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    onBlur={handleNoteSave}
+                    placeholder="Corriger ou compléter la réponse..."
+                    className="min-h-[80px] bg-card border-border resize-none text-sm"
+                    rows={3}
+                  />
+                </div>
+              ) : (
+                <button
+                  onClick={() => setNoteOpen(true)}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <StickyNote className="w-3.5 h-3.5" />
+                  {entity.notes ? "Modifier ma note" : "Ajouter une note"}
+                </button>
+              )}
 
               {/* Self-flag buttons */}
               <div className="space-y-2">

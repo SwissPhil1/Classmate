@@ -11,7 +11,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
-    const { entity_name, entity_type, cycle_count, difficulty_level, chapter, topic, exam_component } = await request.json()
+    const { entity_name, entity_type, cycle_count, difficulty_level, chapter, topic, exam_component, notes } = await request.json()
+
+    const notesBlock = notes
+      ? `\n\nNOTES PERSONNELLES DU CANDIDAT (corrections et observations — tiens-en compte dans ta question et réponse modèle):\n${notes}`
+      : ''
 
     const systemPrompt = `Génère une question de re-test froid niveau FMH2 sur: ${entity_name}.
 Difficulté ${difficulty_level}, cycle ${cycle_count}.
@@ -35,6 +39,7 @@ IMPORTANT pour les réponses modèles:
 
 NE PAS répéter les questions du brief (cycle 1).
 À partir du cycle 2, générer des questions nouvelles.
+${notesBlock}
 
 Retourne UNIQUEMENT un JSON valide, sans markdown ni texte additionnel:
 {

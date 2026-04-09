@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
-import { getEntity, getBrief } from "@/lib/supabase/queries";
+import { getEntity, getBrief, updateEntity } from "@/lib/supabase/queries";
 import type { Entity, Brief } from "@/lib/types";
 import { BriefContent } from "@/components/brief/brief-content";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 
 export default function BriefPage() {
@@ -26,12 +27,15 @@ export default function BriefPage() {
   const [brief, setBrief] = useState<Brief | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [notesSaving, setNotesSaving] = useState(false);
 
   useEffect(() => {
     async function load() {
       try {
         const e = await getEntity(supabase, entityId);
         setEntity(e);
+        setNotes(e.notes || "");
         const b = await getBrief(supabase, entityId);
         setBrief(b);
       } catch (err) {
@@ -72,6 +76,19 @@ export default function BriefPage() {
       console.error("Brief generation error:", err);
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleSaveNotes = async () => {
+    if (!entity || notes === (entity.notes || "")) return;
+    setNotesSaving(true);
+    try {
+      await updateEntity(supabase, entity.id, { notes } as Partial<Entity>);
+      setEntity({ ...entity, notes });
+    } catch (err) {
+      console.error("Save notes error:", err);
+    } finally {
+      setNotesSaving(false);
     }
   };
 
@@ -172,6 +189,24 @@ export default function BriefPage() {
             )}
           </div>
         )}
+
+        {/* Notes section */}
+        <div className="mt-8 space-y-2">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+            Mes notes / corrections
+          </h2>
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            onBlur={handleSaveNotes}
+            placeholder="Ajouter des notes, corrections ou observations personnelles..."
+            className="min-h-[100px] bg-card border-border resize-none text-sm"
+            rows={4}
+          />
+          {notesSaving && (
+            <p className="text-xs text-muted-foreground">Sauvegarde...</p>
+          )}
+        </div>
 
         {/* Bottom actions */}
         <div className="mt-8 space-y-3">
