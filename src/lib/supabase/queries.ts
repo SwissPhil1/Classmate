@@ -85,6 +85,11 @@ export async function getEntity(supabase: SupabaseClient, entityId: string): Pro
   return data as Entity
 }
 
+export async function deleteEntity(supabase: SupabaseClient, entityId: string): Promise<void> {
+  const { error } = await supabase.from('entities').delete().eq('id', entityId)
+  if (error) throw error
+}
+
 export async function createEntity(
   supabase: SupabaseClient,
   entity: {
@@ -94,6 +99,7 @@ export async function createEntity(
     entity_type: EntityType
     source_id: string
     custom_source?: string
+    reference_text?: string | null
   }
 ): Promise<Entity> {
   const { data, error } = await supabase
