@@ -59,6 +59,7 @@ export function SessionQuestion({
           key_points: question.key_points,
           user_answer: userAnswer,
           question_type: question.type,
+          notes: entity.notes,
         }),
       });
       const data = await res.json();

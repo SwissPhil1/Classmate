@@ -11,18 +11,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
-    const { entity_name, entity_type, chapter, topic, reference_text } = await request.json()
+    const { entity_name, entity_type, chapter, topic, reference_text, notes } = await request.json()
 
     const result = await queueBriefGeneration(async () => {
       const referenceBlock = reference_text
-        ? `\n\nCONTENU DE RÉFÉRENCE DU LIVRE (utilise ce contenu comme base principale, traduis en français, complète avec tes connaissances):\n${reference_text}`
+        ? `\n\nCONTENU DE RÉFÉRENCE DU LIVRE:\n${reference_text}\n\nRÈGLE ABSOLUE: Base-toi EXCLUSIVEMENT sur le contenu de référence ci-dessus pour tous les faits médicaux (signes d'imagerie, caractéristiques cliniques, épidémiologie, localisations, signal IRM, densité scanner, etc.).
+Tu peux:
+- Restructurer et reformater le contenu en français selon le template demandé
+- Ajouter les mnémoniques RECONNUS et PUBLIÉS (MEGA, FEGNOMASHIC, VINDICATE, TORCH, etc.)
+- Structurer les diagnostics différentiels issus de la référence
+- Créer le template de présentation orale basé sur les faits de la référence
+Tu ne dois PAS:
+- Inventer ou ajouter des signes d'imagerie non mentionnés dans la référence
+- Modifier les caractéristiques décrites (ex: si la référence dit "asymétrique", ne pas écrire "symétrique")
+- Compléter avec des faits dont tu n'es pas absolument certain
+- En cas de doute sur un fait, l'OMETTRE plutôt que risquer une erreur`
+        : `\n\nAUCUNE RÉFÉRENCE FOURNIE. Base-toi UNIQUEMENT sur des faits médicaux établis et consensuels (niveau Radiopaedia, sources de référence reconnues). En cas de doute sur un fait, l'OMETTRE. Ne rien inventer. Privilégier la précision à l'exhaustivité.`
+
+      const notesBlock = notes
+        ? `\n\nCORRECTIONS DU CANDIDAT (priorité sur toute autre source):\n${notes}`
         : ''
 
       const systemPrompt = `Tu es un radiologue expert et coach pour l'examen FMH2 suisse. Génère un brief d'étude pour: ${entity_name} (chapitre: ${chapter}, thème: ${topic}, type: ${entity_type}).
 
 IMPORTANT: Tout le contenu en français.
 Contexte FMH2 suisse — niveau attendu: médecin spécialiste en formation dernière année.
-${referenceBlock}
+${referenceBlock}${notesBlock}
 
 Format selon entity_type:
 
@@ -94,7 +108,7 @@ APRÈS le contenu markdown, ajoute une section séparée avec EXACTEMENT ce form
 [{"question": "...", "model_answer": "...", "key_points": ["..."]}, ...]
 ---END_QA_JSON---
 
-Les 3 paires Q&A doivent être de style examen FMH2, en français. Les réponses modèles doivent être COMPLÈTES et exhaustives.`
+Les 3 paires Q&A doivent être de style examen FMH2, en français. Les réponses modèles doivent être basées UNIQUEMENT sur les faits du brief ci-dessus — ne pas ajouter de faits supplémentaires.`
 
       const userMessage = `Génère le brief complet pour: ${entity_name} (${entity_type})`
 

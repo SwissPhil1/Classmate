@@ -59,6 +59,8 @@ export default function BriefPage() {
           entity_type: entity.entity_type,
           chapter: entity.chapter?.name,
           topic: entity.chapter?.topic?.name,
+          reference_text: entity.reference_text,
+          notes: entity.notes,
         }),
       });
       const data = await res.json();

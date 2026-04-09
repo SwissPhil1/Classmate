@@ -11,7 +11,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
-    const { entity_name, question, model_answer, key_points, user_answer, question_type } = await request.json()
+    const { entity_name, question, model_answer, key_points, user_answer, question_type, notes } = await request.json()
+
+    const notesBlock = notes
+      ? `\nCorrections du candidat (ces corrections priment sur la réponse modèle si en contradiction): ${notes}`
+      : ''
 
     const systemPrompt = `Évalue cette réponse d'examen FMH2 strictement.
 Entité: ${entity_name}
@@ -19,7 +23,7 @@ Question: ${question}
 Réponse modèle: ${model_answer}
 Points clés requis: ${JSON.stringify(key_points)}
 Réponse du candidat: ${user_answer}
-Type: ${question_type}
+Type: ${question_type}${notesBlock}
 
 Pour Format C (réponse libre): évaluer aussi la structure (introduction, développement, conclusion) et la complétude.
 

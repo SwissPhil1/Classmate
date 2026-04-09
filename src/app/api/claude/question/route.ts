@@ -11,14 +11,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
-    const { entity_name, entity_type, cycle_count, difficulty_level, chapter, topic, exam_component, notes } = await request.json()
+    const { entity_name, entity_type, cycle_count, difficulty_level, chapter, topic, exam_component, notes, reference_text } = await request.json()
+
+    const referenceBlock = reference_text
+      ? `\n\nCONTENU DE RÉFÉRENCE (la réponse modèle doit être cohérente avec ces faits — ne pas les contredire, ne pas inventer de faits absents):\n${reference_text}`
+      : ''
 
     const notesBlock = notes
-      ? `\n\nNOTES PERSONNELLES DU CANDIDAT (corrections et observations — tiens-en compte dans ta question et réponse modèle):\n${notes}`
+      ? `\n\nCORRECTIONS DU CANDIDAT (priorité sur toute autre source):\n${notes}`
       : ''
 
     const systemPrompt = `Génère une question de re-test froid niveau FMH2 sur: ${entity_name}.
 Difficulté ${difficulty_level}, cycle ${cycle_count}.
+${referenceBlock}
 
 Règles de difficulté:
 1: Présentation classique, cas typique
@@ -33,7 +38,8 @@ Règles de type:
 - Si exam_component inclut 'written' ET cycle >2: 10% chance Format C (réponse libre paragraphe)
 
 IMPORTANT pour les réponses modèles:
-- Si un moyen mnémotechnique RECONNU existe pour les DDx testés (ex: MEGA, FEGNOMASHIC, TORCH, VINDICATE, etc.), l'inclure dans la réponse modèle et tester le candidat dessus.
+- Baser les faits médicaux UNIQUEMENT sur la référence fournie ou le consensus médical établi. Ne pas inventer de signes d'imagerie. En cas de doute, omettre.
+- Si un moyen mnémotechnique RECONNU et PUBLIÉ existe pour les DDx testés (ex: MEGA, FEGNOMASHIC, TORCH, VINDICATE, etc.), l'inclure dans la réponse modèle et tester le candidat dessus.
 - Structurer les DDx par fréquence avec un critère discriminant par ligne.
 - À difficulté 2+: tester les mnémoniques directement ("Quel mnémonique permet de se rappeler les tumeurs de la fosse postérieure ?")
 

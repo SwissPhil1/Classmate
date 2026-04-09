@@ -213,6 +213,7 @@ function SessionContent() {
               chapter: entity.chapter?.name,
               topic: entity.chapter?.topic?.name,
               reference_text: entity.reference_text,
+              notes: entity.notes,
             }),
           });
           const data = await res.json();
@@ -265,6 +266,7 @@ function SessionContent() {
             topic: entity.chapter?.topic?.name,
             exam_component: entity.chapter?.topic?.exam_component,
             notes: entity.notes,
+            reference_text: entity.reference_text,
           }),
         });
         const data = await res.json();
@@ -346,6 +348,7 @@ function SessionContent() {
             chapter: currentEntity.chapter?.name,
             topic: currentEntity.chapter?.topic?.name,
             reference_text: currentEntity.reference_text,
+            notes: currentEntity.notes,
           }),
         })
           .then((res) => res.json())
