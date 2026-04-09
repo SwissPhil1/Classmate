@@ -27,7 +27,11 @@ Type selon entity_type:
 - protocol → question d'indication Format A
 ${referenceBlock}
 
-IMPORTANT: La réponse modèle doit être COMPLÈTE et couvrir tous les points clés. Inclure les perles cliniques si pertinent.
+IMPORTANT:
+- La réponse modèle doit être COMPLÈTE et couvrir tous les points clés.
+- Si un moyen mnémotechnique RECONNU existe pour les DDx de cette entité (ex: MEGA pour fosse postérieure, FEGNOMASHIC pour AVN, TORCH pour infections congénitales, VINDICATE comme cadre DDx, etc.), l'INCLURE dans la réponse modèle.
+- Structurer les diagnostics différentiels par fréquence avec un critère discriminant par ligne.
+- Inclure les perles cliniques si pertinent.
 
 Retourne UNIQUEMENT un JSON valide, sans markdown ni texte additionnel:
 {

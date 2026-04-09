@@ -46,8 +46,20 @@ Script exact en français:
 4. Diagnostics différentiels (top 3, un différenciateur par ligne)
 5. Prise en charge
 
+## Mnémonique & DDx structuré
+Si un moyen mnémotechnique RECONNU existe pour les diagnostics différentiels de cette entité ou de sa localisation, l'inclure obligatoirement.
+Exemples de mnémoniques reconnues en radiologie:
+- MEGA (tumeurs fosse postérieure pédiatrique): Medulloblastome, Ependymome, Gliome/astrocytome pilocytique, ATRT
+- FEGNOMASHIC (nécrose avasculaire)
+- VINDICATE (cadre DDx systématique: Vasculaire, Infectieux, Néoplasique, Dégénératif, Inflammatoire/Iatrogène, Congénital, Autoimmun, Traumatique, Endocrinien/métabolique)
+- TORCH (infections congénitales)
+- Etc.
+
+Format: "Mnémonique: [NOM] → [lettre = diagnostic], [lettre = diagnostic], ..."
+Si aucune mnémonique reconnue n'existe, créer une liste DDx structurée par fréquence (fréquent → rare) avec un critère discriminant par ligne.
+
 ## Perles
-Points cliniques et radiologiques essentiels à retenir — les pièges classiques, les associations à ne pas manquer, les astuces mnémotechniques.
+Points cliniques et radiologiques essentiels à retenir — les pièges classiques, les associations à ne pas manquer.
 
 ## Perle protocolaire
 (Inclure seulement si pertinent: quel protocole choisir et pourquoi)
@@ -56,6 +68,10 @@ Points cliniques et radiologiques essentiels à retenir — les pièges classiqu
 (Inclure seulement si pertinent: mesures, critères, seuils)
 
 === ddx_pair ===
+## Mnémonique & DDx structuré
+Si un moyen mnémotechnique RECONNU existe pour ce groupe de diagnostics différentiels, l'inclure obligatoirement (ex: MEGA, FEGNOMASHIC, VINDICATE, etc.).
+Sinon, structurer les DDx par fréquence avec un critère discriminant par ligne.
+
 ## Tableau comparatif
 Tableau côte à côte des critères de différenciation (imagerie, clinique, épidémiologie)
 
@@ -66,7 +82,7 @@ L'erreur que tout le monde fait + comment l'éviter
 Points essentiels à retenir pour chaque diagnostic
 
 === concept ===
-Explication + 'Ce que l'examen teste vraiment' + Perles
+Explication + 'Ce que l'examen teste vraiment' + Mnémoniques si applicables + Perles
 
 === protocol ===
 Indications + Technique + 'Ce qu'on cherche' + Pièges + Perles

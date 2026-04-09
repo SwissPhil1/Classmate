@@ -28,6 +28,11 @@ Règles de type:
 - protocol → Format A ou B
 - Si exam_component inclut 'written' ET cycle >2: 10% chance Format C (réponse libre paragraphe)
 
+IMPORTANT pour les réponses modèles:
+- Si un moyen mnémotechnique RECONNU existe pour les DDx testés (ex: MEGA, FEGNOMASHIC, TORCH, VINDICATE, etc.), l'inclure dans la réponse modèle et tester le candidat dessus.
+- Structurer les DDx par fréquence avec un critère discriminant par ligne.
+- À difficulté 2+: tester les mnémoniques directement ("Quel mnémonique permet de se rappeler les tumeurs de la fosse postérieure ?")
+
 NE PAS répéter les questions du brief (cycle 1).
 À partir du cycle 2, générer des questions nouvelles.
 
