@@ -73,7 +73,13 @@ Format: "Mnémonique: [NOM] → [lettre = diagnostic], [lettre = diagnostic], ..
 Si aucune mnémonique reconnue n'existe, créer une liste DDx structurée par fréquence (fréquent → rare) avec un critère discriminant par ligne.
 
 ## Perles
-Points cliniques et radiologiques essentiels à retenir — les pièges classiques, les associations à ne pas manquer.
+3-5 points COURTS et PERCUTANTS — le genre de chose qu'on retient la veille de l'examen.
+Format: une ligne par perle, maximum 15 mots chacune.
+Exemples de bonnes perles:
+- "Capsule plus fine côté ventriculaire = risque de rupture intra-V"
+- "T2 hypo + restriction diffusion = haute cellularité → lymphome ou médulloblastome"
+- "Anneau ouvert vers le cortex = démyélinisation"
+NE PAS répéter le contenu des sections précédentes — uniquement les raccourcis mnémotechniques et associations clés.
 
 ## Perle protocolaire
 (Inclure seulement si pertinent: quel protocole choisir et pourquoi)
@@ -89,11 +95,24 @@ Sinon, structurer les DDx par fréquence avec un critère discriminant par ligne
 ## Tableau comparatif
 Tableau côte à côte des critères de différenciation (imagerie, clinique, épidémiologie)
 
+## Résumé par diagnostic
+Pour chaque diagnostic du DDx, un sous-titre ### avec:
+- Définition en 1 phrase
+- Signes d'imagerie clés (CT, IRM T1/T2, diffusion, rehaussement)
+- Épidémiologie et clinique si pertinent
+Basé STRICTEMENT sur la référence fournie.
+
 ## Le piège classique
 L'erreur que tout le monde fait + comment l'éviter
 
 ## Perles
-Points essentiels à retenir pour chaque diagnostic
+3-5 points COURTS et PERCUTANTS — le genre de chose qu'on retient la veille de l'examen.
+Format: une ligne par perle, maximum 15 mots chacune.
+Exemples de bonnes perles:
+- "Capsule plus fine côté ventriculaire = risque de rupture intra-V"
+- "T2 hypo + restriction diffusion = haute cellularité → lymphome ou médulloblastome"
+- "Anneau ouvert vers le cortex = démyélinisation"
+NE PAS répéter le contenu du résumé — uniquement les raccourcis mnémotechniques et associations clés.
 
 === concept ===
 Explication + 'Ce que l'examen teste vraiment' + Mnémoniques si applicables + Perles
