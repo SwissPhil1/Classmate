@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
-import { getEntity, getBrief, updateEntity } from "@/lib/supabase/queries";
+import { getEntity, getBrief, updateEntity, updateBriefContent } from "@/lib/supabase/queries";
 import type { Entity, Brief } from "@/lib/types";
 import { BriefContent } from "@/components/brief/brief-content";
 import { ArrowLeft, ExternalLink } from "lucide-react";
@@ -155,6 +155,14 @@ export default function BriefPage() {
           <BriefContent
             brief={brief}
             entityType={entity.entity_type}
+            onContentChange={async (newContent) => {
+              try {
+                await updateBriefContent(supabase, entityId, newContent);
+                setBrief({ ...brief, content: newContent });
+              } catch (err) {
+                console.error("Brief update error:", err);
+              }
+            }}
           />
         ) : (
           <div className="text-center space-y-4 py-12">

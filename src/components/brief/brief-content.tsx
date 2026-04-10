@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { Brief, EntityType, QAPair } from "@/lib/types";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Pencil, Check } from "lucide-react";
 
 interface BriefContentProps {
   brief: Brief;
   entityType: EntityType;
+  onContentChange?: (newContent: string) => void;
 }
 
 interface Section {
@@ -39,7 +40,6 @@ function parseSections(markdown: string): Section[] {
     }
   }
 
-  // Last section
   if (currentTitle || currentContent.length > 0) {
     sections.push({
       title: currentTitle || "Contenu",
@@ -51,12 +51,49 @@ function parseSections(markdown: string): Section[] {
   return sections;
 }
 
+function sectionsToMarkdown(sections: Section[]): string {
+  return sections
+    .map((s) => {
+      const header = `## ${s.title}`;
+      return `${header}\n${s.content}`;
+    })
+    .join("\n\n");
+}
+
 function CollapsibleSection({
   section,
+  onEdit,
 }: {
   section: Section;
+  onEdit?: (newContent: string) => void;
 }) {
   const [expanded, setExpanded] = useState(section.alwaysOpen ?? false);
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(section.content);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (editing && textareaRef.current) {
+      textareaRef.current.focus();
+      // Auto-resize
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + "px";
+    }
+  }, [editing]);
+
+  const handleSave = () => {
+    setEditing(false);
+    if (editText !== section.content && onEdit) {
+      onEdit(editText);
+    }
+  };
+
+  const handleStartEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpanded(true);
+    setEditText(section.content);
+    setEditing(true);
+  };
 
   return (
     <div className="border-b border-border last:border-0">
@@ -71,24 +108,57 @@ function CollapsibleSection({
         <h3 className="text-sm font-semibold text-foreground">
           {section.title}
         </h3>
-        {!section.alwaysOpen && (
-          <ChevronDown
-            className={`w-4 h-4 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
-          />
-        )}
+        <div className="flex items-center gap-1">
+          {onEdit && (expanded || section.alwaysOpen) && !editing && (
+            <span
+              onClick={handleStartEdit}
+              className="p-1.5 rounded-lg hover:bg-background transition-colors"
+            >
+              <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+            </span>
+          )}
+          {!section.alwaysOpen && (
+            <ChevronDown
+              className={`w-4 h-4 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
+            />
+          )}
+        </div>
       </button>
 
       {(expanded || section.alwaysOpen) && (
         <div className="px-4 pb-4">
-          <div
-            className="text-sm text-foreground leading-relaxed prose prose-invert prose-sm max-w-none
-              prose-table:border-border prose-th:border-border prose-td:border-border
-              prose-th:px-3 prose-th:py-2 prose-td:px-3 prose-td:py-2
-              prose-table:text-sm"
-            dangerouslySetInnerHTML={{
-              __html: renderMarkdown(section.content),
-            }}
-          />
+          {editing ? (
+            <div className="space-y-2">
+              <textarea
+                ref={textareaRef}
+                value={editText}
+                onChange={(e) => {
+                  setEditText(e.target.value);
+                  e.target.style.height = "auto";
+                  e.target.style.height = e.target.scrollHeight + "px";
+                }}
+                className="w-full bg-background border border-border rounded-lg p-3 text-sm text-foreground font-mono resize-none focus:outline-none focus:border-teal"
+                rows={6}
+              />
+              <button
+                onClick={handleSave}
+                className="flex items-center gap-1.5 text-xs text-teal hover:text-teal-light transition-colors"
+              >
+                <Check className="w-3.5 h-3.5" />
+                Enregistrer
+              </button>
+            </div>
+          ) : (
+            <div
+              className="text-sm text-foreground leading-relaxed prose prose-invert prose-sm max-w-none
+                prose-table:border-border prose-th:border-border prose-td:border-border
+                prose-th:px-3 prose-th:py-2 prose-td:px-3 prose-td:py-2
+                prose-table:text-sm"
+              dangerouslySetInnerHTML={{
+                __html: renderMarkdown(section.content),
+              }}
+            />
+          )}
         </div>
       )}
     </div>
@@ -193,14 +263,27 @@ function renderMarkdown(md: string): string {
   return `<p>${html}</p>`;
 }
 
-export function BriefContent({ brief, entityType }: BriefContentProps) {
-  const sections = parseSections(brief.content);
+export function BriefContent({ brief, entityType, onContentChange }: BriefContentProps) {
+  const [sections, setSections] = useState(() => parseSections(brief.content));
   const qaPairs = (brief.qa_pairs || []) as QAPair[];
+
+  const handleSectionEdit = (index: number, newContent: string) => {
+    const updated = [...sections];
+    updated[index] = { ...updated[index], content: newContent };
+    setSections(updated);
+
+    const newMarkdown = sectionsToMarkdown(updated);
+    onContentChange?.(newMarkdown);
+  };
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
       {sections.map((section, i) => (
-        <CollapsibleSection key={i} section={section} />
+        <CollapsibleSection
+          key={i}
+          section={section}
+          onEdit={onContentChange ? (content) => handleSectionEdit(i, content) : undefined}
+        />
       ))}
       {qaPairs.length > 0 && <QASection qaPairs={qaPairs} />}
     </div>

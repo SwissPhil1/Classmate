@@ -156,6 +156,18 @@ export async function upsertBrief(
   return data as Brief
 }
 
+export async function updateBriefContent(
+  supabase: SupabaseClient,
+  entityId: string,
+  content: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('briefs')
+    .update({ content })
+    .eq('entity_id', entityId)
+  if (error) throw error
+}
+
 // ─── Sessions ────────────────────────────────────────────
 export async function createSession(
   supabase: SupabaseClient,
