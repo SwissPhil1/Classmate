@@ -4,12 +4,19 @@ import { useEffect } from "react";
 import confetti from "canvas-confetti";
 import type { AnswerRecord } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Check, AlertTriangle, XCircle } from "lucide-react";
+import { Check, AlertTriangle, XCircle, BookOpen } from "lucide-react";
+import Link from "next/link";
 
 interface SessionEndProps {
   answers: AnswerRecord[];
   onReturn: () => void;
 }
+
+const RESULT_CONFIG = {
+  correct: { icon: Check, color: "text-correct", bg: "bg-correct/10", border: "border-correct/20", label: "Correct" },
+  partial: { icon: AlertTriangle, color: "text-partial", bg: "bg-partial/10", border: "border-partial/20", label: "Partiel" },
+  wrong: { icon: XCircle, color: "text-wrong", bg: "bg-wrong/10", border: "border-wrong/20", label: "Incorrect" },
+};
 
 export function SessionEnd({ answers, onReturn }: SessionEndProps) {
   const correct = answers.filter((a) => a.result === "correct").length;
@@ -47,15 +54,22 @@ export function SessionEnd({ answers, onReturn }: SessionEndProps) {
     }
   }, [percentage]);
 
-  // Find entities to review tomorrow (wrong answers)
-  const toReview = answers
-    .filter((a) => a.result === "wrong")
-    .map((a) => a.entity_id)
-    .filter((id, i, arr) => arr.indexOf(id) === i);
+  // Deduplicate by entity_id, keep worst result per entity
+  const entityResults = new Map<string, AnswerRecord>();
+  for (const a of answers) {
+    const existing = entityResults.get(a.entity_id);
+    if (!existing || resultPriority(a.result) > resultPriority(existing.result)) {
+      entityResults.set(a.entity_id, a);
+    }
+  }
+
+  const needsReview = answers.filter(
+    (a) => a.result === "wrong" || a.result === "partial"
+  );
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
-      <div className="w-full max-w-sm space-y-8 text-center">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-8">
+      <div className="w-full max-w-sm space-y-6 text-center">
         <div className="space-y-2">
           <h1 className="text-2xl font-bold text-foreground">
             Session terminée
@@ -65,49 +79,66 @@ export function SessionEnd({ answers, onReturn }: SessionEndProps) {
           </p>
         </div>
 
-        {/* Results breakdown */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between bg-correct/10 border border-correct/20 rounded-xl px-5 py-4">
-            <div className="flex items-center gap-3">
-              <Check className="w-5 h-5 text-correct" />
-              <span className="text-correct font-medium">Correct</span>
-            </div>
-            <span className="text-correct font-bold text-lg">{correct}</span>
-          </div>
-
-          <div className="flex items-center justify-between bg-partial/10 border border-partial/20 rounded-xl px-5 py-4">
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 text-partial" />
-              <span className="text-partial font-medium">Partiel</span>
-            </div>
-            <span className="text-partial font-bold text-lg">{partial}</span>
-          </div>
-
-          <div className="flex items-center justify-between bg-wrong/10 border border-wrong/20 rounded-xl px-5 py-4">
-            <div className="flex items-center gap-3">
-              <XCircle className="w-5 h-5 text-wrong" />
-              <span className="text-wrong font-medium">Incorrect</span>
-            </div>
-            <span className="text-wrong font-bold text-lg">{wrong}</span>
-          </div>
+        {/* Summary counts */}
+        <div className="flex gap-3 justify-center">
+          {([["correct", correct], ["partial", partial], ["wrong", wrong]] as const).map(
+            ([key, count]) => {
+              const config = RESULT_CONFIG[key];
+              const Icon = config.icon;
+              return (
+                <div
+                  key={key}
+                  className={`flex-1 flex flex-col items-center gap-1 ${config.bg} border ${config.border} rounded-xl py-3`}
+                >
+                  <Icon className={`w-5 h-5 ${config.color}`} />
+                  <span className={`font-bold text-lg ${config.color}`}>{count}</span>
+                </div>
+              );
+            }
+          )}
         </div>
 
-        {/* Entities to review */}
-        {toReview.length > 0 && (
-          <div className="text-left bg-card border border-border rounded-xl p-4">
-            <p className="text-sm font-medium text-muted-foreground mb-2">
-              Entités à revoir demain
+        {/* Entity-by-entity breakdown */}
+        {answers.length > 0 && (
+          <div className="text-left space-y-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Détail par entité
             </p>
-            <ul className="space-y-1">
-              {answers
-                .filter((a) => a.result === "wrong")
-                .map((a, i) => (
-                  <li key={i} className="text-sm text-foreground">
-                    • {a.question_text.substring(0, 60)}...
-                  </li>
-                ))}
-            </ul>
+            <div className="space-y-2">
+              {Array.from(entityResults.values()).map((a) => {
+                const config = RESULT_CONFIG[a.result];
+                const Icon = config.icon;
+                return (
+                  <div
+                    key={a.entity_id}
+                    className="flex items-center gap-3 bg-card border border-border rounded-xl px-4 py-3"
+                  >
+                    <Icon className={`w-4 h-4 flex-shrink-0 ${config.color}`} />
+                    <span className="text-sm text-foreground flex-1 truncate">
+                      {a.question_text.length > 50
+                        ? a.question_text.substring(0, 50) + "..."
+                        : a.question_text}
+                    </span>
+                    <Link
+                      href={`/brief/${a.entity_id}`}
+                      className="p-1.5 rounded-lg hover:bg-background transition-colors flex-shrink-0"
+                    >
+                      <BookOpen className="w-4 h-4 text-teal" />
+                    </Link>
+                  </div>
+                );
+              })}
+            </div>
           </div>
+        )}
+
+        {/* Coaching message */}
+        {needsReview.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {needsReview.length === total
+              ? "Pas de panique — les pré-tests froids servent à activer l'apprentissage. Consulte les briefs pour étudier."
+              : `${needsReview.length} entité${needsReview.length > 1 ? "s" : ""} à consolider. Consulte les briefs pour renforcer.`}
+          </p>
         )}
 
         <Button
@@ -119,4 +150,10 @@ export function SessionEnd({ answers, onReturn }: SessionEndProps) {
       </div>
     </div>
   );
+}
+
+function resultPriority(result: string): number {
+  if (result === "wrong") return 2;
+  if (result === "partial") return 1;
+  return 0;
 }
