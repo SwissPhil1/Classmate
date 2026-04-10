@@ -39,7 +39,7 @@ Règles de type:
 
 IMPORTANT pour les réponses modèles:
 - Baser les faits médicaux UNIQUEMENT sur la référence fournie ou le consensus médical établi. Ne pas inventer de signes d'imagerie. En cas de doute, omettre.
-- Si un moyen mnémotechnique RECONNU et PUBLIÉ existe pour les DDx testés (ex: MEGA, FEGNOMASHIC, TORCH, VINDICATE, etc.), l'inclure dans la réponse modèle et tester le candidat dessus.
+- Si un moyen mnémotechnique SPÉCIFIQUE et RECONNU existe pour les DDx testés (ex: MEGA pour fosse postérieure, FEGNOMASHIC pour AVN, TORCH pour infections congénitales), l'inclure et tester le candidat dessus. NE PAS utiliser VINDICATE comme DDx — c'est un cadre générique, pas une mnémonique spécifique à tester.
 - Structurer les DDx par fréquence avec un critère discriminant par ligne.
 - À difficulté 2+: tester les mnémoniques directement ("Quel mnémonique permet de se rappeler les tumeurs de la fosse postérieure ?")
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
@@ -10,6 +11,8 @@ import {
   getSources,
   createSource,
   createEntity,
+  getEntity,
+  updateEntity,
 } from "@/lib/supabase/queries";
 import type { Topic, Chapter, Source, EntityType } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -32,6 +35,7 @@ const ENTITY_TYPE_OPTIONS: { value: EntityType; label: string }[] = [
 
 export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
   const { user } = useUser();
+  const router = useRouter();
   const supabase = createClient();
 
   const [name, setName] = useState("");
@@ -50,6 +54,7 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
   const [submitting, setSubmitting] = useState(false);
   const [matches, setMatches] = useState<{ entity_id: string; entity_name: string; relationship: string; reason: string }[]>([]);
   const [checkingMatches, setCheckingMatches] = useState(false);
+  const [enriching, setEnriching] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -101,6 +106,37 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
       setMatches([]);
     } finally {
       setCheckingMatches(false);
+    }
+  };
+
+  const handleEnrichExisting = async (entityId: string) => {
+    if (!referenceText.trim()) {
+      toast.error("Ajoutez du texte de référence avant d'enrichir");
+      return;
+    }
+    setEnriching(true);
+    try {
+      const entity = await getEntity(supabase, entityId);
+      const existingRef = entity.reference_text || "";
+      const newRef = existingRef
+        ? `${existingRef}\n\n--- AJOUT ---\n${referenceText.trim()}`
+        : referenceText.trim();
+
+      await updateEntity(supabase, entityId, {
+        reference_text: newRef,
+      } as Partial<typeof entity>);
+
+      // Delete the existing brief so it gets regenerated with the enriched reference
+      await supabase.from("briefs").delete().eq("entity_id", entityId);
+
+      toast.success("Référence ajoutée — brief à régénérer");
+      onClose();
+      router.push(`/brief/${entityId}`);
+    } catch (err) {
+      console.error("Enrich error:", err);
+      toast.error("Erreur lors de l'enrichissement");
+    } finally {
+      setEnriching(false);
     }
   };
 
@@ -218,21 +254,32 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
                     <p className="text-xs text-amber font-medium">Entités similaires trouvées</p>
                   </div>
                   {matches.map((m) => (
-                    <div key={m.entity_id} className="flex items-center gap-2 text-xs">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${m.relationship === 'duplicate' ? 'bg-wrong/10 text-wrong' : 'bg-partial/10 text-partial'}`}>
-                        {m.relationship === 'duplicate' ? 'Doublon' : 'Chevauchement'}
-                      </span>
-                      <span className="text-foreground flex-1 truncate">{m.entity_name}</span>
-                      <Link href={`/brief/${m.entity_id}`} className="text-teal hover:underline flex-shrink-0">
-                        <LinkIcon className="w-3.5 h-3.5" />
-                      </Link>
+                    <div key={m.entity_id} className="space-y-1.5">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${m.relationship === 'duplicate' ? 'bg-wrong/10 text-wrong' : 'bg-partial/10 text-partial'}`}>
+                          {m.relationship === 'duplicate' ? 'Doublon' : 'Chevauchement'}
+                        </span>
+                        <span className="text-foreground flex-1 truncate">{m.entity_name}</span>
+                        <Link href={`/brief/${m.entity_id}`} className="text-teal hover:underline flex-shrink-0">
+                          <LinkIcon className="w-3.5 h-3.5" />
+                        </Link>
+                      </div>
+                      {referenceText.trim() && (
+                        <button
+                          onClick={() => handleEnrichExisting(m.entity_id)}
+                          disabled={enriching}
+                          className="w-full h-9 flex items-center justify-center gap-1.5 bg-teal/10 border border-teal/30 text-teal rounded-lg text-xs font-medium hover:bg-teal/20 transition-colors disabled:opacity-50"
+                        >
+                          {enriching ? "Enrichissement..." : `Enrichir "${m.entity_name}" avec cette référence`}
+                        </button>
+                      )}
                     </div>
                   ))}
-                  <p className="text-[10px] text-muted-foreground">
-                    {matches.some(m => m.relationship === 'duplicate')
-                      ? "Un doublon existe déjà. Vous pouvez enrichir son brief au lieu de créer une nouvelle entité."
-                      : "Vous pouvez ajouter le texte de référence au brief existant via sa page."}
-                  </p>
+                  {!referenceText.trim() && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Ajoutez du texte de référence ci-dessous pour pouvoir enrichir le brief existant.
+                    </p>
+                  )}
                 </div>
               )}
 

@@ -33,7 +33,7 @@ ${referenceBlock}${notesBlock}
 
 IMPORTANT:
 - La réponse modèle doit être complète mais basée UNIQUEMENT sur des faits vérifiés (référence fournie ou consensus médical établi).
-- Si un moyen mnémotechnique RECONNU et PUBLIÉ existe pour les DDx de cette entité (ex: MEGA pour fosse postérieure, FEGNOMASHIC pour AVN, TORCH pour infections congénitales, VINDICATE comme cadre DDx, etc.), l'INCLURE dans la réponse modèle.
+- Si un moyen mnémotechnique SPÉCIFIQUE et RECONNU existe pour les DDx de cette entité précise (ex: MEGA pour fosse postérieure pédiatrique, FEGNOMASHIC pour AVN, TORCH pour infections congénitales), l'INCLURE dans la réponse modèle. NE PAS utiliser VINDICATE comme DDx — c'est un cadre générique d'organisation, pas une mnémonique spécifique.
 - Structurer les diagnostics différentiels par fréquence avec un critère discriminant par ligne.
 - Ne pas inventer de signes d'imagerie. En cas de doute, omettre le fait.
 

@@ -61,16 +61,12 @@ Script exact en français:
 5. Prise en charge
 
 ## Mnémonique & DDx structuré
-Si un moyen mnémotechnique RECONNU existe pour les diagnostics différentiels de cette entité ou de sa localisation, l'inclure obligatoirement.
-Exemples de mnémoniques reconnues en radiologie:
-- MEGA (tumeurs fosse postérieure pédiatrique): Medulloblastome, Ependymome, Gliome du tronc cérébral, Astrocytome pilocytique
-- FEGNOMASHIC (nécrose avasculaire)
-- VINDICATE (cadre DDx systématique: Vasculaire, Infectieux, Néoplasique, Dégénératif, Inflammatoire/Iatrogène, Congénital, Autoimmun, Traumatique, Endocrinien/métabolique)
-- TORCH (infections congénitales)
-- Etc.
+IMPORTANT — distinguer deux types de mnémoniques:
+1. **Mnémonique SPÉCIFIQUE à cette entité/localisation** (ex: MEGA pour tumeurs fosse postérieure pédiatrique, TORCH pour infections congénitales, FEGNOMASHIC pour nécrose avasculaire). Si une telle mnémonique RECONNUE et PUBLIÉE existe, l'inclure EN PRIORITÉ.
+2. **Cadre DDx générique** (VINDICATE = Vasculaire, Infectieux, Néoplasique, Dégénératif, etc.). NE PAS utiliser VINDICATE comme mnémonique principale pour une entité — c'est un outil d'organisation, pas un DDx spécifique. Ne l'inclure que si AUCUNE mnémonique spécifique n'existe ET uniquement comme cadre de réflexion secondaire.
 
-Format: "Mnémonique: [NOM] → [lettre = diagnostic], [lettre = diagnostic], ..."
-Si aucune mnémonique reconnue n'existe, créer une liste DDx structurée par fréquence (fréquent → rare) avec un critère discriminant par ligne.
+Si aucune mnémonique spécifique n'existe: lister les DDx par fréquence (fréquent → rare) avec un critère discriminant par ligne.
+Format si mnémonique: "Mnémonique: [NOM] → [lettre = diagnostic], [lettre = diagnostic], ..."
 
 ## Perles
 3-5 points COURTS et PERCUTANTS — le genre de chose qu'on retient la veille de l'examen.
@@ -89,7 +85,8 @@ NE PAS répéter le contenu des sections précédentes — uniquement les raccou
 
 === ddx_pair ===
 ## Mnémonique & DDx structuré
-Si un moyen mnémotechnique RECONNU existe pour ce groupe de diagnostics différentiels, l'inclure obligatoirement (ex: MEGA, FEGNOMASHIC, VINDICATE, etc.).
+Si un moyen mnémotechnique SPÉCIFIQUE et RECONNU existe pour ce groupe précis de diagnostics (ex: MEGA pour fosse postérieure pédiatrique, TORCH pour infections congénitales), l'inclure en priorité.
+NE PAS utiliser VINDICATE comme mnémonique principale — c'est un cadre générique d'organisation, pas un DDx spécifique. Ne l'inclure qu'en complément si aucune mnémonique spécifique n'existe.
 Sinon, structurer les DDx par fréquence avec un critère discriminant par ligne.
 
 ## Tableau comparatif
