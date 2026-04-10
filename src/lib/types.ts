@@ -4,7 +4,7 @@ export type EntityStatus = 'new' | 'active' | 'solid' | 'archived'
 export type ExamComponent = 'oral' | 'written' | 'both'
 export type QuestionType = 'A_typed' | 'B_open' | 'C_freeresponse'
 export type TestResult = 'correct' | 'partial' | 'wrong'
-export type SessionType = 'short' | 'weekend' | 'topic_study' | 'weekly_review' | 'monthly_review'
+export type SessionType = 'short' | 'weekend' | 'topic_study' | 'weekly_review' | 'monthly_review' | 'weak_items'
 export type ThemeMode = 'dark' | 'light'
 export type DifficultyLevel = 1 | 2 | 3
 
@@ -131,6 +131,7 @@ export interface AnswerRecord {
   result: TestResult
   feedback: string | null
   is_pretest: boolean
+  confidence?: number
 }
 
 export interface UserSettings {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import type { Entity, QuestionType, TestResult } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ interface SessionQuestionProps {
     key_points: string[];
   };
   isPretest: boolean;
-  onAnswer: (result: TestResult, userAnswer: string | null, feedback?: string) => void;
+  onAnswer: (result: TestResult, userAnswer: string | null, feedback?: string, confidence?: number) => void;
   onSaveNote?: (entityId: string, note: string) => void;
 }
 
@@ -39,9 +39,32 @@ export function SessionQuestion({
   const [selfFlagged, setSelfFlagged] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState(entity.notes || "");
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const answerRef = useRef<HTMLTextAreaElement>(null);
 
   const isTyped = question.type === "A_typed" || question.type === "C_freeresponse";
   const isOpen = question.type === "B_open";
+
+  const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 2) => {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const res = await fetch(url, options);
+        if (res.ok || res.status < 500) return res;
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
+          continue;
+        }
+        return res;
+      } catch (err) {
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error("Max retries exceeded");
+  };
 
   const handleSubmitTyped = async () => {
     if (!userAnswer.trim()) return;
@@ -49,7 +72,7 @@ export function SessionQuestion({
     setEvaluating(true);
 
     try {
-      const res = await fetch("/api/claude/evaluate", {
+      const res = await fetchWithRetry("/api/claude/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -84,12 +107,13 @@ export function SessionQuestion({
       navigator.vibrate(10);
     }
     handleNoteSave();
-    onAnswer(result, isOpen ? null : userAnswer, evaluation?.feedback);
+    onAnswer(result, isOpen ? null : userAnswer, evaluation?.feedback, confidence ?? undefined);
   };
 
   const handleNext = () => {
     if (evaluation) {
-      onAnswer(evaluation.result, userAnswer, evaluation.feedback);
+      handleNoteSave();
+      onAnswer(evaluation.result, userAnswer, evaluation.feedback, confidence ?? undefined);
     }
   };
 
@@ -128,7 +152,7 @@ export function SessionQuestion({
       {/* Pre-test badge */}
       {isPretest && (
         <div className="mb-3">
-          <span className="text-xs bg-amber/10 text-amber px-2 py-1 rounded-full font-medium">
+          <span className="text-xs bg-amber/10 text-amber px-2 py-1 rounded-full font-medium" role="status">
             Pré-test
           </span>
         </div>
@@ -140,7 +164,7 @@ export function SessionQuestion({
       </h3>
 
       {/* Question */}
-      <div className="bg-card border border-border rounded-xl p-5 mb-4">
+      <div className="bg-card border border-border rounded-xl p-5 mb-4" role="region" aria-label="Question">
         <p className="text-foreground leading-relaxed">{question.question}</p>
       </div>
 
@@ -150,8 +174,13 @@ export function SessionQuestion({
           {isTyped ? (
             <>
               <Textarea
+                ref={answerRef}
                 value={userAnswer}
                 onChange={(e) => setUserAnswer(e.target.value)}
+                onFocus={() => {
+                  // Auto-scroll textarea into view on mobile
+                  setTimeout(() => answerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
+                }}
                 placeholder={
                   question.type === "C_freeresponse"
                     ? "Rédigez votre réponse complète..."
@@ -159,6 +188,7 @@ export function SessionQuestion({
                 }
                 className="min-h-[120px] bg-card border-border resize-none"
                 rows={question.type === "C_freeresponse" ? 8 : 4}
+                aria-label="Votre réponse"
               />
               <Button
                 onClick={handleSubmitTyped}
@@ -272,8 +302,34 @@ export function SessionQuestion({
                 </button>
               )}
 
+              {/* Confidence rating */}
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">Confiance dans ma réponse:</p>
+                <div className="flex gap-2" role="group" aria-label="Niveau de confiance">
+                  {[1, 2, 3, 4, 5].map((level) => (
+                    <button
+                      key={level}
+                      onClick={() => setConfidence(level)}
+                      aria-label={`Confiance ${level} sur 5`}
+                      aria-pressed={confidence === level}
+                      className={`flex-1 h-9 rounded-lg text-xs font-medium transition-colors ${
+                        confidence === level
+                          ? "bg-teal text-white"
+                          : "bg-background border border-border text-muted-foreground hover:border-teal/50"
+                      }`}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex justify-between text-[10px] text-muted-foreground px-1">
+                  <span>Deviné</span>
+                  <span>Certain</span>
+                </div>
+              </div>
+
               <Button
-                onClick={() => { handleNoteSave(); handleNext(); }}
+                onClick={handleNext}
                 className="w-full h-14 bg-card border border-border text-foreground font-semibold hover:bg-background"
               >
                 Suivant
@@ -318,7 +374,7 @@ export function SessionQuestion({
               )}
 
               {/* Self-flag buttons */}
-              <div className="space-y-2">
+              <div className="space-y-2" role="group" aria-label="Auto-évaluation de votre réponse">
                 {(["correct", "partial", "wrong"] as TestResult[]).map(
                   (result) => {
                     const config = RESULT_CONFIG[result];
@@ -333,6 +389,7 @@ export function SessionQuestion({
                         key={result}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => handleSelfFlag(result)}
+                        aria-label={`Marquer comme ${labels[result].toLowerCase()}`}
                         className={`w-full h-16 flex items-center justify-center gap-3 rounded-xl border ${config.border} ${config.bg} font-medium ${config.color} transition-colors`}
                       >
                         <Icon className="w-5 h-5" />

@@ -14,8 +14,9 @@ import {
 import type { Topic, Chapter, Source, EntityType } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X } from "lucide-react";
+import { X, AlertCircle, Link as LinkIcon } from "lucide-react";
 import { toast } from "sonner";
+import Link from "next/link";
 
 interface QuickAddSheetProps {
   open: boolean;
@@ -47,6 +48,8 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [matches, setMatches] = useState<{ entity_id: string; entity_name: string; relationship: string; reason: string }[]>([]);
+  const [checkingMatches, setCheckingMatches] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -80,11 +83,37 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
     }
   };
 
+  const checkMatches = async () => {
+    if (!name.trim()) return;
+    setCheckingMatches(true);
+    try {
+      const res = await fetch("/api/claude/match-brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entity_name: name.trim(),
+          reference_text: referenceText.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      setMatches(data.matches || []);
+    } catch {
+      setMatches([]);
+    } finally {
+      setCheckingMatches(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!user || !name.trim() || !chapterId) return;
     setSubmitting(true);
 
     try {
+      // Check for similar entities before creating
+      if (matches.length === 0) {
+        await checkMatches();
+      }
+
       let finalSourceId = sourceId;
 
       // Create custom source if needed
@@ -112,6 +141,7 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
       setCustomSourceName("");
       setReferenceText("");
       setShowReference(false);
+      setMatches([]);
       onClose();
     } catch (err) {
       console.error("Quick add error:", err);
@@ -170,11 +200,41 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
                 <Input
                   autoFocus
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => { setName(e.target.value); setMatches([]); }}
+                  onBlur={() => { if (name.trim().length > 3) checkMatches(); }}
                   placeholder="ex: Médulloblastome vs épendymome"
                   className="h-12 bg-background border-border"
                 />
               </div>
+
+              {/* Smart matching results */}
+              {checkingMatches && (
+                <p className="text-xs text-muted-foreground animate-pulse">Recherche d&apos;entités similaires...</p>
+              )}
+              {matches.length > 0 && (
+                <div className="bg-amber/5 border border-amber/20 rounded-lg p-3 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber font-medium">Entités similaires trouvées</p>
+                  </div>
+                  {matches.map((m) => (
+                    <div key={m.entity_id} className="flex items-center gap-2 text-xs">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${m.relationship === 'duplicate' ? 'bg-wrong/10 text-wrong' : 'bg-partial/10 text-partial'}`}>
+                        {m.relationship === 'duplicate' ? 'Doublon' : 'Chevauchement'}
+                      </span>
+                      <span className="text-foreground flex-1 truncate">{m.entity_name}</span>
+                      <Link href={`/brief/${m.entity_id}`} className="text-teal hover:underline flex-shrink-0">
+                        <LinkIcon className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  ))}
+                  <p className="text-[10px] text-muted-foreground">
+                    {matches.some(m => m.relationship === 'duplicate')
+                      ? "Un doublon existe déjà. Vous pouvez enrichir son brief au lieu de créer une nouvelle entité."
+                      : "Vous pouvez ajouter le texte de référence au brief existant via sa page."}
+                  </p>
+                </div>
+              )}
 
               {/* Entity Type */}
               <div className="space-y-1.5">

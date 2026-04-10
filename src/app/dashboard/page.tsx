@@ -8,11 +8,14 @@ import { useSettings } from "@/hooks/use-settings";
 import {
   getDueCount,
   getPretestCount,
+  getWeakCount,
   getTopicHealthGrid,
   getSessionState,
+  getEntities,
+  updateEntity,
 } from "@/lib/supabase/queries";
-import { daysUntil, weekNumber } from "@/lib/spaced-repetition";
-import type { TopicHealth, SessionType } from "@/lib/types";
+import { daysUntil, weekNumber, checkMasteryDecay } from "@/lib/spaced-repetition";
+import type { TopicHealth, SessionType, Entity } from "@/lib/types";
 import { ExamCountdown } from "@/components/dashboard/exam-countdown";
 import { TodayQueue } from "@/components/dashboard/today-queue";
 import { TopicHealthGrid } from "@/components/dashboard/topic-health-grid";
@@ -31,6 +34,7 @@ export default function DashboardPage() {
 
   const [dueCount, setDueCount] = useState(0);
   const [pretestCount, setPretestCount] = useState(0);
+  const [weakCount, setWeakCount] = useState(0);
   const [topicHealth, setTopicHealth] = useState<TopicHealth[]>([]);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [resumeSession, setResumeSession] = useState<string | null>(null);
@@ -48,14 +52,31 @@ export default function DashboardPage() {
 
     async function loadDashboard() {
       try {
-        const [due, pretest, health, existingState] = await Promise.all([
+        // Check mastery decay for stale entities
+        const allEntities = await getEntities(supabase, user!.id);
+        const decayUpdates = allEntities
+          .filter(e => e.status === 'solid' || e.status === 'archived')
+          .map(e => ({ entity: e, decay: checkMasteryDecay(e) }))
+          .filter(({ decay }) => decay.needsDecay);
+
+        if (decayUpdates.length > 0) {
+          await Promise.all(
+            decayUpdates.map(({ entity: e, decay }) =>
+              updateEntity(supabase, e.id, decay.updates as Partial<Entity>)
+            )
+          );
+        }
+
+        const [due, pretest, weak, health, existingState] = await Promise.all([
           getDueCount(supabase, user!.id),
           getPretestCount(supabase, user!.id),
+          getWeakCount(supabase, user!.id),
           getTopicHealthGrid(supabase, user!.id),
           getSessionState(supabase, user!.id),
         ]);
         setDueCount(due);
         setPretestCount(pretest);
+        setWeakCount(weak);
         setTopicHealth(health);
         if (existingState) {
           setResumeSession(existingState.session_id);
@@ -142,6 +163,7 @@ export default function DashboardPage() {
         <TodayQueue
           dueCount={dueCount}
           pretestCount={pretestCount}
+          weakCount={weakCount}
           onStartSession={handleStartSession}
         />
 

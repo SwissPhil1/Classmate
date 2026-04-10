@@ -8,6 +8,7 @@ import { ChevronDown } from "lucide-react";
 interface TodayQueueProps {
   dueCount: number;
   pretestCount: number;
+  weakCount?: number;
   onStartSession: (type: SessionType, topicId?: string) => void;
 }
 
@@ -22,6 +23,7 @@ const SESSION_OPTIONS: { value: SessionType; label: string }[] = [
 export function TodayQueue({
   dueCount,
   pretestCount,
+  weakCount = 0,
   onStartSession,
 }: TodayQueueProps) {
   const [selectedType, setSelectedType] = useState<SessionType>("short");
@@ -82,6 +84,18 @@ export function TodayQueue({
       >
         Commencer la session
       </Button>
+
+      {/* Weak items button */}
+      {weakCount > 0 && (
+        <button
+          onClick={() => onStartSession("weak_items")}
+          className="w-full flex items-center justify-center gap-2 h-11 bg-wrong/10 border border-wrong/20 text-wrong rounded-xl text-sm font-medium hover:bg-wrong/20 transition-colors"
+          aria-label={`Consolider ${weakCount} entités fragiles`}
+        >
+          <span className="w-2 h-2 bg-wrong rounded-full" />
+          Consolider {weakCount} entité{weakCount > 1 ? "s" : ""} fragile{weakCount > 1 ? "s" : ""}
+        </button>
+      )}
     </div>
   );
 }

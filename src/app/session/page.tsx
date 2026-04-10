@@ -153,17 +153,29 @@ function SessionContent() {
     }
   };
 
-  const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs = 30000) => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(url, { ...options, signal: controller.signal });
-      clearTimeout(timeout);
-      return res;
-    } catch (err) {
-      clearTimeout(timeout);
-      throw err;
+  const fetchWithRetry = async (url: string, options: RequestInit, timeoutMs = 30000, maxRetries = 3) => {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(timeout);
+        if (res.ok || res.status < 500) return res; // Don't retry client errors
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000)); // 1s, 2s, 4s
+          continue;
+        }
+        return res;
+      } catch (err) {
+        clearTimeout(timeout);
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
+          continue;
+        }
+        throw err;
+      }
     }
+    throw new Error("Max retries exceeded");
   };
 
   const loadQuestion = async (item: QueueItem) => {
@@ -204,7 +216,7 @@ function SessionContent() {
           };
         } else {
           // Generate pretest question
-          const res = await fetchWithTimeout("/api/claude/pretest", {
+          const res = await fetchWithRetry("/api/claude/pretest", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -254,7 +266,7 @@ function SessionContent() {
         }
       } else {
         // Cycle 2+ or brief not ready yet: generate fresh question
-        const res = await fetchWithTimeout("/api/claude/question", {
+        const res = await fetchWithRetry("/api/claude/question", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -300,7 +312,7 @@ function SessionContent() {
   };
 
   const handleAnswer = useCallback(
-    async (result: TestResult, userAnswer: string | null, feedback?: string) => {
+    async (result: TestResult, userAnswer: string | null, feedback?: string, confidence?: number) => {
       if (!currentEntity || !currentQuestion || !sessionId || !user) return;
 
       const item = queue[currentIndex];
@@ -326,6 +338,7 @@ function SessionContent() {
           difficulty_level: currentEntity.difficulty_level,
           status: currentEntity.status,
           cycle_count: currentEntity.cycle_count,
+          last_tested: currentEntity.last_tested,
         },
         result
       );
@@ -380,6 +393,7 @@ function SessionContent() {
         result,
         feedback: feedback || null,
         is_pretest: item.is_pretest,
+        confidence,
       };
 
       const newAnswers = [...answers, answer];
@@ -500,6 +514,7 @@ function SessionContent() {
         </div>
         <button
           onClick={handleAbandon}
+          aria-label="Abandonner la session"
           className="p-2 rounded-lg hover:bg-card transition-colors"
         >
           <X className="w-5 h-5 text-muted-foreground" />
@@ -507,7 +522,7 @@ function SessionContent() {
       </div>
 
       {/* Progress bar */}
-      <div className="h-1 bg-border">
+      <div className="h-1 bg-border" role="progressbar" aria-valuenow={currentIndex + 1} aria-valuemin={1} aria-valuemax={queue.length} aria-label={`Question ${currentIndex + 1} sur ${queue.length}`}>
         <div
           className="h-full bg-teal transition-all duration-300"
           style={{

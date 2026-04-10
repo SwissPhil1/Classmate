@@ -115,10 +115,40 @@ Exemples de bonnes perles:
 NE PAS répéter le contenu du résumé — uniquement les raccourcis mnémotechniques et associations clés.
 
 === concept ===
-Explication + 'Ce que l'examen teste vraiment' + Mnémoniques si applicables + Perles
+## Vue d'ensemble
+Définition et contexte clinique — qu'est-ce que c'est et pourquoi c'est testé en FMH2.
+
+## Ce que l'examen teste vraiment
+Les pièges et subtilités que les examinateurs ciblent.
+
+## Mnémonique & DDx structuré
+Si une mnémonique reconnue existe, l'inclure. Sinon, liste structurée par fréquence.
+
+## Perles
+3-5 points COURTS et PERCUTANTS (max 15 mots chacun).
 
 === protocol ===
-Indications + Technique + 'Ce qu'on cherche' + Pièges + Perles
+## Indications
+Quand ce protocole est-il indiqué? Principaux scénarios cliniques.
+
+## Technique & Paramètres
+Séquences/phases, paramètres clés, produit de contraste (type, dose, timing).
+
+## Dose & Sécurité
+- Dose de radiation estimée (si applicable, en mSv)
+- Principe ALARA appliqué: comment réduire la dose
+- Contre-indications absolues et relatives
+- Gestion de l'allergie au contraste / insuffisance rénale (DFG seuils)
+- Précautions grossesse/allaitement si pertinent
+
+## Ce qu'on cherche
+Signes clés à identifier, diagnostic principal et DDx.
+
+## Pièges
+Faux positifs/négatifs classiques, artéfacts, variantes anatomiques.
+
+## Perles
+3-5 points COURTS et PERCUTANTS (max 15 mots chacun).
 
 Temps de lecture total: moins de 5 minutes.
 

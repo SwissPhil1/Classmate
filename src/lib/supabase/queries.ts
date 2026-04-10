@@ -372,6 +372,19 @@ export async function getTopicHealthGrid(
   })
 }
 
+// ─── Weak Items Count ───────────────────────────────────
+export async function getWeakCount(supabase: SupabaseClient, userId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('entities')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .in('status', ['active'])
+    .lte('correct_streak', 1)
+    .eq('pre_test_done', true)
+  if (error) throw error
+  return count ?? 0
+}
+
 // ─── Session Queue Assembly ──────────────────────────────
 export async function assembleQueue(
   supabase: SupabaseClient,
@@ -406,8 +419,13 @@ export async function assembleQueue(
     .eq('user_id', userId)
     .eq('pre_test_queued', false)
     .in('status', ['active', 'new'])
-    .not('next_test_date', 'is', null)
-    .lte('next_test_date', today)
+
+  if (sessionType === 'weak_items') {
+    // Weak items: struggling entities regardless of next_test_date
+    entityQuery = entityQuery.lte('correct_streak', 1).eq('pre_test_done', true)
+  } else {
+    entityQuery = entityQuery.not('next_test_date', 'is', null).lte('next_test_date', today)
+  }
 
   if (sessionType === 'topic_study' && topicFilter) {
     // Get chapter IDs for this topic
@@ -448,6 +466,7 @@ export async function assembleQueue(
   const cap = sessionType === 'short' ? 20
     : sessionType === 'weekend' ? 40
     : sessionType === 'topic_study' ? Infinity
+    : sessionType === 'weak_items' ? 15
     : 30 // reviews
 
   // Pre-tests are always included, cap applies to regular queue only
