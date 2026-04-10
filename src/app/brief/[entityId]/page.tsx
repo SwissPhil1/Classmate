@@ -61,6 +61,8 @@ export default function BriefPage() {
           topic: entity.chapter?.topic?.name,
           reference_text: entity.reference_text,
           notes: entity.notes,
+          // Pass existing content so Claude preserves user edits
+          existing_content: brief?.content || undefined,
         }),
       });
       const data = await res.json();
@@ -152,18 +154,30 @@ export default function BriefPage() {
 
       <main className="max-w-3xl mx-auto px-4 py-6">
         {brief ? (
-          <BriefContent
-            brief={brief}
-            entityType={entity.entity_type}
-            onContentChange={async (newContent) => {
-              try {
-                await updateBriefContent(supabase, entityId, newContent);
-                setBrief({ ...brief, content: newContent });
-              } catch (err) {
-                console.error("Brief update error:", err);
-              }
-            }}
-          />
+          <>
+            <BriefContent
+              brief={brief}
+              entityType={entity.entity_type}
+              onContentChange={async (newContent) => {
+                try {
+                  await updateBriefContent(supabase, entityId, newContent);
+                  setBrief({ ...brief, content: newContent });
+                } catch (err) {
+                  console.error("Brief update error:", err);
+                }
+              }}
+            />
+            {/* Regenerate button */}
+            <div className="mt-4 flex justify-center">
+              <button
+                onClick={handleGenerate}
+                disabled={generating}
+                className="text-xs text-muted-foreground hover:text-teal transition-colors disabled:opacity-50"
+              >
+                {generating ? "Régénération en cours..." : "Régénérer le brief (vos modifications seront préservées)"}
+              </button>
+            </div>
+          </>
         ) : (
           <div className="text-center space-y-4 py-12">
             {entity.pre_test_done === false ? (

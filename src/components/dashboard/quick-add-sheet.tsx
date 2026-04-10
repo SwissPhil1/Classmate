@@ -126,10 +126,9 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
         reference_text: newRef,
       } as Partial<typeof entity>);
 
-      // Delete the existing brief so it gets regenerated with the enriched reference
-      await supabase.from("briefs").delete().eq("entity_id", entityId);
-
-      toast.success("Référence ajoutée — brief à régénérer");
+      // Don't delete the brief — user can regenerate from the brief page
+      // which will pass existing_content to preserve their edits
+      toast.success("Référence ajoutée — régénérez le brief pour intégrer");
       onClose();
       router.push(`/brief/${entityId}`);
     } catch (err) {

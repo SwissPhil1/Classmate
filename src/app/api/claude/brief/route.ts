@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
-    const { entity_name, entity_type, chapter, topic, reference_text, notes } = await request.json()
+    const { entity_name, entity_type, chapter, topic, reference_text, notes, existing_content } = await request.json()
 
     const result = await queueBriefGeneration(async () => {
       const referenceBlock = reference_text
@@ -32,11 +32,15 @@ Tu ne dois PAS:
         ? `\n\nCORRECTIONS DU CANDIDAT (priorité sur toute autre source):\n${notes}`
         : ''
 
+      const existingContentBlock = existing_content
+        ? `\n\nBRIEF EXISTANT (le candidat a manuellement modifié certaines sections — PRÉSERVE toutes les modifications, corrections et ajouts de l'utilisateur. Intègre les nouvelles informations de la référence SANS écraser les éditions manuelles):\n${existing_content}`
+        : ''
+
       const systemPrompt = `Tu es un radiologue expert et coach pour l'examen FMH2 suisse. Génère un brief d'étude pour: ${entity_name} (chapitre: ${chapter}, thème: ${topic}, type: ${entity_type}).
 
 IMPORTANT: Tout le contenu en français.
 Contexte FMH2 suisse — niveau attendu: médecin spécialiste en formation dernière année.
-${referenceBlock}${notesBlock}
+${referenceBlock}${notesBlock}${existingContentBlock}
 
 Format selon entity_type:
 
