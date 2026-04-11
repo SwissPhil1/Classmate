@@ -61,6 +61,9 @@ export default function TopicDetailPage() {
   const [groupingId, setGroupingId] = useState<string | null>(null);
   const [addingChildTo, setAddingChildTo] = useState<string | null>(null);
   const [newChildName, setNewChildName] = useState("");
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [creatingGroupLoading, setCreatingGroupLoading] = useState(false);
 
   useEffect(() => {
     if (!userLoading && !user) router.push("/login");
@@ -169,10 +172,33 @@ export default function TopicDetailPage() {
     }
   };
 
-  const handleCreateGroup = async (entityId: string) => {
-    // Convert a standalone entity into a parent by selecting other standalones to nest under it
-    setGroupingId(entityId);
-    setExpandedParents((prev) => new Set([...prev, entityId]));
+  const handleCreateNewGroup = async () => {
+    if (!user || !newGroupName.trim()) return;
+    // Find a chapter_id from the first standalone entity in this topic
+    const firstEntity = standalones[0] || entities[0];
+    if (!firstEntity) return;
+
+    setCreatingGroupLoading(true);
+    try {
+      const parent = await createEntity(supabase, {
+        user_id: user.id,
+        chapter_id: firstEntity.chapter_id,
+        name: newGroupName.trim(),
+        entity_type: firstEntity.entity_type,
+        source_id: firstEntity.source_id,
+      });
+      setEntities((prev) => [...prev, parent]);
+      setGroupingId(parent.id);
+      setExpandedParents((prev) => new Set([...prev, parent.id]));
+      setCreatingGroup(false);
+      setNewGroupName("");
+      toast.success(`Groupe "${parent.name}" créé — sélectionnez les entités à y ajouter`);
+    } catch (err) {
+      console.error("Create group error:", err);
+      toast.error("Erreur lors de la création du groupe");
+    } finally {
+      setCreatingGroupLoading(false);
+    }
   };
 
   const handleAddToGroup = async (childId: string, parentId: string) => {
@@ -439,9 +465,15 @@ export default function TopicDetailPage() {
                         </Link>
                         <div className="flex items-center border-l border-border">
                           <button
-                            onClick={() => setAddingChildTo(parent.id)}
-                            title="Ajouter une sous-entité"
-                            className="p-3 hover:bg-background/50 transition-colors text-muted-foreground hover:text-teal"
+                            onClick={() => {
+                              if (groupingId === parent.id) {
+                                setGroupingId(null);
+                              } else {
+                                setGroupingId(parent.id);
+                              }
+                            }}
+                            title={groupingId === parent.id ? "Terminer" : "Ajouter des entités existantes"}
+                            className={`p-3 hover:bg-background/50 transition-colors ${groupingId === parent.id ? "text-teal" : "text-muted-foreground hover:text-teal"}`}
                           >
                             <Plus className="w-4 h-4" />
                           </button>
@@ -467,8 +499,8 @@ export default function TopicDetailPage() {
                     <div className="space-y-1">
                       {children.map((child) => renderEntityRow(child, true))}
 
-                      {/* Add child form */}
-                      {addingChildTo === parent.id && (
+                      {/* Add new child by name */}
+                      {addingChildTo === parent.id ? (
                         <div className="ml-6 bg-card border border-border border-l-2 border-l-teal/30 rounded-lg px-4 py-3 flex items-center gap-2">
                           <Input
                             autoFocus
@@ -492,6 +524,13 @@ export default function TopicDetailPage() {
                             <X className="w-5 h-5" />
                           </button>
                         </div>
+                      ) : (
+                        <button
+                          onClick={() => setAddingChildTo(parent.id)}
+                          className="ml-6 w-[calc(100%-1.5rem)] py-2 text-xs text-muted-foreground hover:text-teal bg-card/50 border border-dashed border-border rounded-lg hover:border-teal/30 transition-colors"
+                        >
+                          + Nouvelle sous-entité
+                        </button>
                       )}
                     </div>
                   )}
@@ -499,37 +538,87 @@ export default function TopicDetailPage() {
               );
             })}
 
+            {/* Create new group button */}
+            {standalones.length >= 2 && !groupingId && !creatingGroup && (
+              <button
+                onClick={() => setCreatingGroup(true)}
+                className="w-full py-3 flex items-center justify-center gap-2 text-sm text-teal font-medium bg-teal/5 border border-teal/20 rounded-xl hover:bg-teal/10 transition-colors"
+              >
+                <FolderPlus className="w-4 h-4" />
+                Créer un nouveau groupe
+              </button>
+            )}
+
+            {/* New group name input */}
+            {creatingGroup && (
+              <div className="bg-card border border-teal/30 rounded-xl px-4 py-3 flex items-center gap-2">
+                <FolderPlus className="w-5 h-5 text-teal shrink-0" />
+                <Input
+                  autoFocus
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleCreateNewGroup()}
+                  placeholder="Nom du groupe (ex: Nodules pulmonaires)"
+                  className="h-10 bg-background border-border flex-1"
+                />
+                <button
+                  onClick={handleCreateNewGroup}
+                  disabled={!newGroupName.trim() || creatingGroupLoading}
+                  className="p-2 rounded-lg hover:bg-correct/10 text-correct disabled:opacity-50"
+                >
+                  <Check className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => { setCreatingGroup(false); setNewGroupName(""); }}
+                  className="p-2 rounded-lg hover:bg-card text-muted-foreground"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            )}
+
+            {/* Grouping mode banner */}
+            {groupingId && (
+              <div className="bg-teal/5 border border-teal/20 rounded-xl px-4 py-3 space-y-2">
+                <p className="text-sm text-teal font-medium">
+                  Sélectionnez les entités à ajouter au groupe
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Cliquez sur &quot;Ajouter&quot; à côté de chaque entité que vous voulez inclure dans le groupe.
+                </p>
+              </div>
+            )}
+
             {/* Standalone entities */}
             {standalones.map((entity) => (
               <div key={entity.id}>
-                {groupingId && groupingId !== entity.id ? (
+                {groupingId ? (
                   /* When grouping mode is active, show "add to group" button */
                   <div className="bg-card border border-border rounded-xl overflow-hidden">
                     <div className="flex items-center">
                       <div className="flex-1 px-4 py-3 min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">{entity.name}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs text-muted-foreground">
+                            {ENTITY_TYPE_LABELS[entity.entity_type]}
+                          </span>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full ${STATUS_CONFIG[entity.status].color}`}
+                          >
+                            {STATUS_CONFIG[entity.status].label}
+                          </span>
+                        </div>
                       </div>
                       <button
                         onClick={() => handleAddToGroup(entity.id, groupingId)}
-                        className="px-4 py-2 text-xs text-teal font-medium hover:bg-teal/10 transition-colors border-l border-border"
+                        className="px-4 py-3 text-xs text-teal font-medium hover:bg-teal/10 transition-colors border-l border-border whitespace-nowrap"
                       >
                         + Ajouter au groupe
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-stretch gap-0">
-                    <div className="flex-1">{renderEntityRow(entity)}</div>
-                    {!groupingId && (
-                      <button
-                        onClick={() => handleCreateGroup(entity.id)}
-                        title="Créer un groupe"
-                        className="ml-1 px-2 bg-card border border-border rounded-xl flex items-center justify-center hover:bg-background/50 transition-colors text-muted-foreground hover:text-teal"
-                      >
-                        <FolderPlus className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
+                  renderEntityRow(entity)
                 )}
               </div>
             ))}
@@ -538,7 +627,7 @@ export default function TopicDetailPage() {
             {groupingId && (
               <button
                 onClick={() => setGroupingId(null)}
-                className="w-full py-3 text-sm text-muted-foreground hover:text-foreground bg-card border border-border rounded-xl transition-colors"
+                className="w-full py-3 text-sm font-medium text-foreground bg-card border border-border rounded-xl hover:bg-background/50 transition-colors"
               >
                 Terminer le groupement
               </button>
