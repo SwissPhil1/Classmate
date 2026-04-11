@@ -91,6 +91,16 @@ export async function deleteEntity(supabase: SupabaseClient, entityId: string): 
   if (error) throw error
 }
 
+export async function getChildEntities(supabase: SupabaseClient, parentId: string): Promise<Entity[]> {
+  const { data, error } = await supabase
+    .from('entities')
+    .select('*, chapter:chapters(*, topic:topics(*)), source:sources(*), brief:briefs(*)')
+    .eq('parent_id', parentId)
+    .order('date_flagged', { ascending: false })
+  if (error) throw error
+  return data as Entity[]
+}
+
 export async function createEntity(
   supabase: SupabaseClient,
   entity: {
@@ -101,6 +111,7 @@ export async function createEntity(
     source_id: string
     custom_source?: string
     reference_text?: string | null
+    parent_id?: string | null
   }
 ): Promise<Entity> {
   const { data, error } = await supabase
@@ -396,6 +407,15 @@ export async function assembleQueue(
   const today = new Date().toISOString().split('T')[0]
   const queue: QueueItem[] = []
 
+  // 0. Get parent IDs (entities that have children) to flag synthesis questions
+  const { data: childRows, error: childErr } = await supabase
+    .from('entities')
+    .select('parent_id')
+    .eq('user_id', userId)
+    .not('parent_id', 'is', null)
+  if (childErr) throw childErr
+  const parentIds = new Set((childRows || []).map(r => r.parent_id).filter(Boolean))
+
   // 1. Pre-tests first
   const { data: pretestEntities, error: pretestErr } = await supabase
     .from('entities')
@@ -459,6 +479,7 @@ export async function assembleQueue(
       entity_id: e.id,
       question_type: null, // determined at serve time
       is_pretest: false,
+      is_synthesis: parentIds.has(e.id),
     })
   }
 

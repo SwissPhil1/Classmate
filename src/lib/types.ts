@@ -32,6 +32,7 @@ export interface Entity {
   id: string
   user_id: string
   chapter_id: string
+  parent_id: string | null
   name: string
   entity_type: EntityType
   source_id: string
@@ -54,6 +55,7 @@ export interface Entity {
   topic?: Topic
   source?: Source
   brief?: Brief
+  children?: Entity[]
 }
 
 export interface QAPair {
@@ -108,6 +110,7 @@ export interface QueueItem {
   entity_id: string
   question_type: QuestionType | null
   is_pretest: boolean
+  is_synthesis?: boolean
   question?: string
   model_answer?: string
   key_points?: string[]

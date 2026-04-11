@@ -11,7 +11,69 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
-    const { entity_name, entity_type, chapter, topic, reference_text, notes, existing_content } = await request.json()
+    const { entity_name, entity_type, chapter, topic, reference_text, notes, existing_content, is_synthesis, children_names, children_references } = await request.json()
+
+    // Synthesis brief for parent entities
+    if (is_synthesis && children_names?.length > 0) {
+      const result = await queueBriefGeneration(async () => {
+        const childrenBlock = children_names.map((name: string, i: number) => {
+          const ref = children_references?.[i] || ''
+          return `### ${name}\n${ref ? ref.substring(0, 2000) : '(pas de référence fournie)'}`
+        }).join('\n\n')
+
+        const synthPrompt = `Tu es un radiologue expert et coach FMH2 suisse. Génère un BRIEF DE SYNTHÈSE pour le groupe: ${entity_name} (chapitre: ${chapter}, thème: ${topic}).
+
+Ce groupe contient les sous-entités suivantes avec leurs références:
+${childrenBlock}
+
+${notes ? `\nCORRECTIONS DU CANDIDAT (priorité):\n${notes}` : ''}
+${existing_content ? `\nBRIEF EXISTANT (préserver les modifications manuelles):\n${existing_content}` : ''}
+
+IMPORTANT: Tout en français. Niveau FMH2.
+
+Format du brief de synthèse:
+
+## Vue d'ensemble du groupe
+2-3 phrases: qu'est-ce que ${entity_name} en tant que catégorie, pourquoi c'est important en radiologie.
+
+## Tableau comparatif
+Tableau markdown comparant TOUTES les sous-entités:
+| Critère | Sous-type 1 | Sous-type 2 | ... |
+Inclure: épidémiologie, localisation typique, signes clés, signal IRM/CT, traitement.
+
+## Points communs
+Ce qui unit toutes les sous-entités de ce groupe.
+
+## Critères de discrimination rapide
+Pour chaque paire de sous-types facilement confondus: LE critère qui les différencie.
+
+## Arbre décisionnel
+Approche systématique: comment identifier le bon sous-type à partir d'une image.
+
+## Perles de synthèse
+3-5 perles COURTES qui aident à naviguer le groupe rapidement.
+
+Temps de lecture: moins de 5 minutes.
+
+APRÈS le contenu, ajoute:
+---QA_JSON---
+[{"question": "...", "model_answer": "...", "key_points": ["..."]}, ...]
+---END_QA_JSON---
+
+Les 3 Q&A doivent être des questions de SYNTHÈSE/COMPARAISON entre les sous-types, pas sur un seul sous-type.`
+
+        const response = await callClaude(synthPrompt, `Brief de synthèse: ${entity_name}`, 6144)
+        const qaMatch = response.match(/---QA_JSON---\s*([\s\S]*?)\s*---END_QA_JSON---/)
+        let qa_pairs: QAPair[] = []
+        let content = response
+        if (qaMatch) {
+          content = response.substring(0, response.indexOf('---QA_JSON---')).trim()
+          qa_pairs = parseClaudeJSON<QAPair[]>(qaMatch[1])
+        }
+        return { content, qa_pairs }
+      })
+      return NextResponse.json(result)
+    }
 
     const result = await queueBriefGeneration(async () => {
       const referenceBlock = reference_text

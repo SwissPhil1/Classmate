@@ -11,7 +11,41 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
-    const { entity_name, entity_type, chapter, topic, reference_text, notes } = await request.json()
+    const { entity_name, entity_type, chapter, topic, reference_text, notes, is_synthesis, children_names, children_references } = await request.json()
+
+    // Synthesis mode: parent entity pretest
+    if (is_synthesis && children_names?.length > 0) {
+      const childrenBlock = children_names.map((name: string, i: number) => {
+        const ref = children_references?.[i] || ''
+        return `- ${name}${ref ? `: ${ref.substring(0, 800)}` : ''}`
+      }).join('\n')
+
+      const synthPrompt = `Tu es un coach FMH2. Génère un pré-test de synthèse sur le groupe: ${entity_name}.
+Le candidat n'a PAS encore étudié en détail — la tentative échouée est intentionnelle.
+
+Sous-entités du groupe:
+${childrenBlock}
+
+Génère une question large qui teste la connaissance globale du groupe (pas un sous-type spécifique).
+Exemples: "Citez les principaux types de ${entity_name} et un critère discriminant pour chacun", "Quelle est la classification des ${entity_name} ?"
+
+${notes ? `\nCORRECTIONS DU CANDIDAT:\n${notes}` : ''}
+
+Retourne UNIQUEMENT un JSON valide:
+{
+  "type": "B",
+  "question": "string (en français)",
+  "model_answer": "string (en français)",
+  "key_points": ["string"]
+}`
+
+      const response = await callClaude(synthPrompt, `Pré-test synthèse: ${entity_name}`, 2048)
+      const parsed = parseClaudeJSON<ClaudePretestResponse>(response)
+      if (!parsed.type || !parsed.question || !parsed.model_answer || !Array.isArray(parsed.key_points)) {
+        return NextResponse.json({ error: 'Réponse Claude invalide' }, { status: 502 })
+      }
+      return NextResponse.json(parsed)
+    }
 
     const referenceBlock = reference_text
       ? `\n\nCONTENU DE RÉFÉRENCE:\n${reference_text}\n\nLa réponse modèle doit contenir UNIQUEMENT des faits présents dans le contenu de référence ci-dessus. Ne pas inventer de caractéristiques d'imagerie ou de faits cliniques absents de la référence. En cas de doute, omettre.`

@@ -11,7 +11,45 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
-    const { entity_name, entity_type, cycle_count, difficulty_level, chapter, topic, exam_component, notes, reference_text } = await request.json()
+    const { entity_name, entity_type, cycle_count, difficulty_level, chapter, topic, exam_component, notes, reference_text, is_synthesis, children_names, children_references } = await request.json()
+
+    // Synthesis mode: parent entity with children
+    if (is_synthesis && children_names?.length > 0) {
+      const childrenBlock = children_names.map((name: string, i: number) => {
+        const ref = children_references?.[i] || ''
+        return `### ${name}\n${ref ? ref.substring(0, 1500) : '(pas de référence)'}`
+      }).join('\n\n')
+
+      const synthPrompt = `Génère une question de SYNTHÈSE / COMPARAISON niveau FMH2 sur le groupe: ${entity_name}.
+Difficulté ${difficulty_level}, cycle ${cycle_count}.
+
+Ce groupe contient les sous-entités suivantes:
+${childrenBlock}
+
+Types de questions de synthèse (varier selon le cycle):
+- Tableau comparatif: "Comparez X et Y en termes de [critère]"
+- Pattern commun: "Quel signe est commun à tous les types de ${entity_name} ?"
+- Discrimination: "Comment différencier X de Y à l'imagerie ?"
+- Intégration: "Patient avec [présentation], quel sous-type de ${entity_name} est le plus probable ?"
+
+${notes ? `\nCORRECTIONS DU CANDIDAT:\n${notes}` : ''}
+
+Retourne UNIQUEMENT un JSON valide:
+{
+  "type": "B",
+  "question": "string (en français)",
+  "model_answer": "string (en français, intégrant les données de TOUS les sous-types)",
+  "key_points": ["string"],
+  "difficulty_used": number
+}`
+
+      const response = await callClaude(synthPrompt, `Question de synthèse pour: ${entity_name}`, 2048)
+      const parsed = parseClaudeJSON<ClaudeQuestionResponse>(response)
+      if (!parsed.type || !parsed.question || !parsed.model_answer || !Array.isArray(parsed.key_points)) {
+        return NextResponse.json({ error: 'Réponse Claude invalide' }, { status: 502 })
+      }
+      return NextResponse.json(parsed)
+    }
 
     const referenceBlock = reference_text
       ? `\n\nCONTENU DE RÉFÉRENCE (la réponse modèle doit être cohérente avec ces faits — ne pas les contredire, ne pas inventer de faits absents):\n${reference_text}`

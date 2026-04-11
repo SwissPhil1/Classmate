@@ -12,9 +12,10 @@ import {
   createSource,
   createEntity,
   getEntity,
+  getEntities,
   updateEntity,
 } from "@/lib/supabase/queries";
-import type { Topic, Chapter, Source, EntityType } from "@/lib/types";
+import type { Topic, Chapter, Source, Entity, EntityType } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, AlertCircle, Link as LinkIcon } from "lucide-react";
@@ -47,6 +48,8 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
   const [showCustomSource, setShowCustomSource] = useState(false);
   const [referenceText, setReferenceText] = useState("");
   const [showReference, setShowReference] = useState(false);
+  const [parentId, setParentId] = useState<string | null>(null);
+  const [parentEntities, setParentEntities] = useState<Entity[]>([]);
 
   const [topics, setTopics] = useState<Topic[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
@@ -57,18 +60,24 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
   const [enriching, setEnriching] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !user) return;
     const load = async () => {
-      const [t, s] = await Promise.all([
+      const [t, s, ents] = await Promise.all([
         getTopics(supabase),
         getSources(supabase),
+        getEntities(supabase, user.id),
       ]);
       setTopics(t);
       setSources(s);
       if (t.length > 0 && !topicId) setTopicId(t[0].id);
+
+      // Entities that could be parents: those already having children, or any standalone
+      const childParentIds = new Set(ents.filter(e => e.parent_id).map(e => e.parent_id!));
+      const potentialParents = ents.filter(e => childParentIds.has(e.id) || !e.parent_id);
+      setParentEntities(potentialParents);
     };
     load();
-  }, [open]);
+  }, [open, user]);
 
   useEffect(() => {
     if (!topicId) return;
@@ -158,16 +167,22 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
         setSources((prev) => [...prev, newSource]);
       }
 
+      // If parent is selected, inherit chapter_id from parent
+      const effectiveChapterId = parentId
+        ? (parentEntities.find(e => e.id === parentId)?.chapter_id || chapterId)
+        : chapterId;
+
       await createEntity(supabase, {
         user_id: user.id,
-        chapter_id: chapterId,
+        chapter_id: effectiveChapterId,
         name: name.trim(),
         entity_type: entityType,
         source_id: finalSourceId,
         reference_text: referenceText.trim() || null,
+        parent_id: parentId,
       });
 
-      toast.success("Entité ajoutée — pré-test demain matin");
+      toast.success(parentId ? "Sous-entité ajoutée au groupe" : "Entité ajoutée — pré-test demain matin");
 
       // Reset form
       setName("");
@@ -177,6 +192,7 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
       setReferenceText("");
       setShowReference(false);
       setMatches([]);
+      setParentId(null);
       onClose();
     } catch (err) {
       console.error("Quick add error:", err);
@@ -317,6 +333,32 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
                   ))}
                 </select>
               </div>
+
+              {/* Parent entity (optional) */}
+              {parentEntities.length > 0 && (
+                <div className="space-y-1.5">
+                  <label className="text-sm text-muted-foreground">
+                    Groupe parent (optionnel)
+                  </label>
+                  <select
+                    value={parentId || ""}
+                    onChange={(e) => setParentId(e.target.value || null)}
+                    className="w-full h-12 bg-background border border-border rounded-lg px-3 text-sm text-foreground"
+                  >
+                    <option value="">Aucun (entité standalone)</option>
+                    {parentEntities.map((pe) => (
+                      <option key={pe.id} value={pe.id}>
+                        {pe.name}
+                      </option>
+                    ))}
+                  </select>
+                  {parentId && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Le chapitre sera hérité du parent. L&apos;entité sera testée individuellement.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Reference text (Top 3, etc.) */}
               <div className="space-y-1.5">

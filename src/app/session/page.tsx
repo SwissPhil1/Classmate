@@ -10,6 +10,7 @@ import {
   assembleQueue,
   createSession,
   getEntity,
+  getChildEntities,
   getSessionState,
   upsertSessionState,
   deleteSessionState,
@@ -204,6 +205,15 @@ function SessionContent() {
         key_points: string[];
       } | null = null;
 
+      // Fetch children for synthesis questions
+      let childrenNames: string[] = [];
+      let childrenRefs: string[] = [];
+      if (item.is_synthesis) {
+        const children = await getChildEntities(supabase, entity.id);
+        childrenNames = children.map((c) => c.name);
+        childrenRefs = children.map((c) => c.reference_text || "");
+      }
+
       if (item.is_pretest) {
         // Check if pretest was already generated and stored on entity
         if (entity.pretest_question) {
@@ -226,6 +236,7 @@ function SessionContent() {
               topic: entity.chapter?.topic?.name,
               reference_text: entity.reference_text,
               notes: entity.notes,
+              ...(item.is_synthesis && { is_synthesis: true, children_names: childrenNames, children_references: childrenRefs }),
             }),
           });
           const data = await res.json();
@@ -279,6 +290,7 @@ function SessionContent() {
             exam_component: entity.chapter?.topic?.exam_component,
             notes: entity.notes,
             reference_text: entity.reference_text,
+            ...(item.is_synthesis && { is_synthesis: true, children_names: childrenNames, children_references: childrenRefs }),
           }),
         });
         const data = await res.json();
@@ -351,6 +363,14 @@ function SessionContent() {
         entityUpdate.status = "active";
         entityUpdate.next_test_date = update.next_test_date;
 
+        // Fetch children if synthesis for brief generation
+        const briefSynthData = item.is_synthesis
+          ? await (async () => {
+              const ch = await getChildEntities(supabase, currentEntity.id);
+              return { is_synthesis: true, children_names: ch.map(c => c.name), children_references: ch.map(c => c.reference_text || "") };
+            })()
+          : {};
+
         // Queue brief generation after pretest
         fetch("/api/claude/brief", {
           method: "POST",
@@ -362,6 +382,7 @@ function SessionContent() {
             topic: currentEntity.chapter?.topic?.name,
             reference_text: currentEntity.reference_text,
             notes: currentEntity.notes,
+            ...briefSynthData,
           }),
         })
           .then((res) => res.json())

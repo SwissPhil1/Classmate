@@ -7,6 +7,7 @@ import { useUser } from "@/hooks/use-user";
 import { getEntity, getBrief, updateEntity, updateBriefContent } from "@/lib/supabase/queries";
 import type { Entity, Brief } from "@/lib/types";
 import { BriefContent } from "@/components/brief/brief-content";
+import { ReferenceTextEditor } from "@/components/brief/reference-text-editor";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -213,6 +214,16 @@ export default function BriefPage() {
             )}
           </div>
         )}
+
+        {/* Reference text editor */}
+        <ReferenceTextEditor
+          entityName={entity.name}
+          referenceText={entity.reference_text}
+          onSave={async (text) => {
+            await updateEntity(supabase, entity.id, { reference_text: text } as Partial<Entity>);
+            setEntity({ ...entity, reference_text: text });
+          }}
+        />
 
         {/* Notes section */}
         <div className="mt-8 space-y-2">
