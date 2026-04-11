@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
-import { getEntity, getBrief, updateEntity, updateBriefContent } from "@/lib/supabase/queries";
+import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities } from "@/lib/supabase/queries";
 import type { Entity, Brief } from "@/lib/types";
 import { BriefContent } from "@/components/brief/brief-content";
 import { ReferenceTextEditor } from "@/components/brief/reference-text-editor";
@@ -26,10 +26,13 @@ export default function BriefPage() {
 
   const [entity, setEntity] = useState<Entity | null>(null);
   const [brief, setBrief] = useState<Brief | null>(null);
+  const [children, setChildren] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [notes, setNotes] = useState("");
   const [notesSaving, setNotesSaving] = useState(false);
+
+  const isParent = children.length > 0;
 
   useEffect(() => {
     async function load() {
@@ -37,8 +40,12 @@ export default function BriefPage() {
         const e = await getEntity(supabase, entityId);
         setEntity(e);
         setNotes(e.notes || "");
-        const b = await getBrief(supabase, entityId);
+        const [b, ch] = await Promise.all([
+          getBrief(supabase, entityId),
+          getChildEntities(supabase, entityId),
+        ]);
         setBrief(b);
+        setChildren(ch);
       } catch (err) {
         console.error("Brief load error:", err);
       } finally {
@@ -52,6 +59,15 @@ export default function BriefPage() {
     if (!entity) return;
     setGenerating(true);
     try {
+      // For parent entities, pass synthesis data with children info
+      const synthData = isParent
+        ? {
+            is_synthesis: true,
+            children_names: children.map((c) => c.name),
+            children_references: children.map((c) => c.reference_text || ""),
+          }
+        : {};
+
       const res = await fetch("/api/claude/brief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -64,6 +80,7 @@ export default function BriefPage() {
           notes: entity.notes,
           // Pass existing content so Claude preserves user edits
           existing_content: brief?.content || undefined,
+          ...synthData,
         }),
       });
       const data = await res.json();
@@ -154,6 +171,26 @@ export default function BriefPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-6">
+        {/* Parent group info */}
+        {isParent && (
+          <div className="mb-6 bg-teal/5 border border-teal/20 rounded-xl p-4 space-y-2">
+            <p className="text-sm font-medium text-teal">
+              Groupe de synthèse — {children.length} sous-entité{children.length !== 1 ? "s" : ""}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {children.map((child) => (
+                <Link
+                  key={child.id}
+                  href={`/brief/${child.id}`}
+                  className="text-xs bg-card border border-border rounded-full px-2.5 py-1 text-foreground hover:border-teal/50 transition-colors"
+                >
+                  {child.name}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
         {brief ? (
           <>
             <BriefContent
@@ -175,13 +212,41 @@ export default function BriefPage() {
                 disabled={generating}
                 className="text-xs text-muted-foreground hover:text-teal transition-colors disabled:opacity-50"
               >
-                {generating ? "Régénération en cours..." : "Régénérer le brief (vos modifications seront préservées)"}
+                {generating
+                  ? "Régénération en cours..."
+                  : isParent
+                    ? "Régénérer le brief de synthèse (vos modifications seront préservées)"
+                    : "Régénérer le brief (vos modifications seront préservées)"}
               </button>
             </div>
           </>
         ) : (
           <div className="text-center space-y-4 py-12">
-            {entity.pre_test_done === false ? (
+            {generating ? (
+              <div className="space-y-3">
+                <div className="h-4 bg-card animate-pulse rounded w-3/4 mx-auto" />
+                <div className="h-4 bg-card animate-pulse rounded w-1/2 mx-auto" />
+                <div className="h-4 bg-card animate-pulse rounded w-2/3 mx-auto" />
+                <p className="text-sm text-muted-foreground mt-4">
+                  {isParent ? "Génération du brief de synthèse..." : "Génération en cours..."}
+                </p>
+              </div>
+            ) : isParent ? (
+              <>
+                <p className="text-muted-foreground">
+                  Aucun brief de synthèse disponible.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Le brief de synthèse comparera les {children.length} sous-entités de ce groupe.
+                </p>
+                <Button
+                  onClick={handleGenerate}
+                  className="bg-teal hover:bg-teal-light text-white"
+                >
+                  Générer le brief de synthèse
+                </Button>
+              </>
+            ) : entity.pre_test_done === false ? (
               <>
                 <p className="text-muted-foreground">
                   Le brief sera disponible après le pré-test.
@@ -190,15 +255,6 @@ export default function BriefPage() {
                   Le pré-test sera présenté dans votre prochaine session.
                 </p>
               </>
-            ) : generating ? (
-              <div className="space-y-3">
-                <div className="h-4 bg-card animate-pulse rounded w-3/4 mx-auto" />
-                <div className="h-4 bg-card animate-pulse rounded w-1/2 mx-auto" />
-                <div className="h-4 bg-card animate-pulse rounded w-2/3 mx-auto" />
-                <p className="text-sm text-muted-foreground mt-4">
-                  Génération en cours...
-                </p>
-              </div>
             ) : (
               <>
                 <p className="text-muted-foreground">
