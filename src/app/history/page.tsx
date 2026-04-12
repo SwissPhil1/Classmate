@@ -204,9 +204,10 @@ export default function HistoryPage() {
                           (r.entity as { name?: string } | undefined)?.name || "—";
                         const sessionInfo = r.session as { session_type?: string } | undefined;
                         return (
-                          <div
+                          <Link
                             key={r.id}
-                            className="flex items-center gap-3 bg-card border border-border rounded-xl px-4 py-3"
+                            href={`/brief/${r.entity_id}`}
+                            className="flex items-center gap-3 bg-card border border-border rounded-xl px-4 py-3 hover:border-teal/40 transition-colors"
                           >
                             <Icon className={`w-4 h-4 flex-shrink-0 ${config.color}`} />
                             <div className="flex-1 min-w-0">
@@ -236,13 +237,8 @@ export default function HistoryPage() {
                                 )}
                               </div>
                             </div>
-                            <Link
-                              href={`/brief/${r.entity_id}`}
-                              className="p-1.5 rounded-lg hover:bg-background transition-colors flex-shrink-0"
-                            >
-                              <BookOpen className="w-4 h-4 text-teal" />
-                            </Link>
-                          </div>
+                            <BookOpen className="w-4 h-4 text-teal flex-shrink-0" />
+                          </Link>
                         );
                       })}
                     </div>

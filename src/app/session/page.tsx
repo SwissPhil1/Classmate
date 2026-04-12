@@ -62,6 +62,7 @@ function SessionContent() {
   const [completed, setCompleted] = useState(false);
   const [direction, setDirection] = useState(1);
   const [questionError, setQuestionError] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
 
   // Initialize session
   useEffect(() => {
@@ -115,6 +116,9 @@ function SessionContent() {
         }
       } catch (err) {
         console.error("Session init error:", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        setInitError(msg);
+        toast.error("Erreur d'initialisation de la session");
       } finally {
         setLoading(false);
       }
@@ -504,6 +508,11 @@ function SessionContent() {
           <p className="text-sm text-muted-foreground">
             Ajoutez des entités ou attendez les prochaines dates de révision.
           </p>
+          {initError && (
+            <p className="text-xs text-wrong bg-wrong/10 border border-wrong/20 rounded-lg px-3 py-2">
+              Erreur : {initError}
+            </p>
+          )}
           <button
             onClick={() => router.push("/dashboard")}
             className="text-teal hover:underline text-sm"
