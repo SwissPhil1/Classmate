@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import confetti from "canvas-confetti";
 import type { AnswerRecord, SessionType } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Check, AlertTriangle, XCircle, BookOpen, BarChart3, Clock } from "lucide-react";
+import { Check, AlertTriangle, XCircle, BookOpen, BarChart3, Clock, Sparkles, ChevronDown, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 interface SessionEndProps {
@@ -35,6 +35,11 @@ export function SessionEnd({ answers, sessionType, onReturn }: SessionEndProps) 
   const wrong = answers.filter((a) => a.result === "wrong").length;
   const total = answers.length;
   const percentage = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [showErrorReview, setShowErrorReview] = useState(false);
+  const [expandedError, setExpandedError] = useState<string | null>(null);
 
   useEffect(() => {
     if (percentage >= 80) {
@@ -97,8 +102,36 @@ export function SessionEnd({ answers, sessionType, onReturn }: SessionEndProps) 
 
   const isLongSession = sessionType === "weekend" || sessionType === "weekly_review" || sessionType === "monthly_review";
 
+  const handleAnalyze = async () => {
+    setAnalyzing(true);
+    try {
+      const errors = needsReview.map((a) => ({
+        entity_name: a.entity_name || "Entité inconnue",
+        question: a.question_text,
+        user_answer: a.user_answer,
+        feedback: a.feedback,
+        result: a.result,
+      }));
+
+      const res = await fetch("/api/claude/session-debrief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          errors,
+          session_type: sessionType || "short",
+        }),
+      });
+      const data = await res.json();
+      setAnalysis(data.analysis || data.error);
+    } catch {
+      setAnalysis("Analyse indisponible temporairement");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-8">
+    <div className="min-h-screen bg-background flex flex-col items-center px-4 py-8">
       <div className="w-full max-w-sm space-y-6 text-center">
         <div className="space-y-2">
           <h1 className="text-2xl font-bold text-foreground">
@@ -171,6 +204,110 @@ export function SessionEnd({ answers, sessionType, onReturn }: SessionEndProps) 
           </div>
         )}
 
+        {/* Error review section */}
+        {needsReview.length > 0 && (
+          <div className="text-left space-y-2">
+            <button
+              onClick={() => setShowErrorReview(!showErrorReview)}
+              className="flex items-center gap-2 w-full"
+            >
+              {showErrorReview ? (
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              )}
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Revue des erreurs ({needsReview.length})
+              </p>
+            </button>
+
+            {showErrorReview && (
+              <div className="space-y-2">
+                {needsReview.map((a, i) => {
+                  const config = RESULT_CONFIG[a.result];
+                  const Icon = config.icon;
+                  const isExpanded = expandedError === `${a.entity_id}-${i}`;
+                  return (
+                    <div
+                      key={`${a.entity_id}-${i}`}
+                      className={`bg-card border ${config.border} rounded-xl overflow-hidden`}
+                    >
+                      <button
+                        onClick={() => setExpandedError(isExpanded ? null : `${a.entity_id}-${i}`)}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                      >
+                        <Icon className={`w-4 h-4 flex-shrink-0 ${config.color}`} />
+                        <span className="text-sm text-foreground flex-1 truncate">
+                          {a.entity_name || "Entité"}
+                        </span>
+                        {isExpanded ? (
+                          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                        )}
+                      </button>
+
+                      {isExpanded && (
+                        <div className="px-4 pb-3 space-y-2 border-t border-border pt-2">
+                          <div>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Question</p>
+                            <p className="text-xs text-foreground mt-0.5">{a.question_text}</p>
+                          </div>
+                          {a.user_answer && (
+                            <div>
+                              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Ta réponse</p>
+                              <p className="text-xs text-foreground mt-0.5">{a.user_answer}</p>
+                            </div>
+                          )}
+                          {a.feedback && (
+                            <div>
+                              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Ce qui manquait</p>
+                              <p className="text-xs text-foreground mt-0.5">{a.feedback}</p>
+                            </div>
+                          )}
+                          <Link
+                            href={`/brief/${a.entity_id}`}
+                            className="flex items-center gap-1.5 text-xs text-teal hover:underline mt-1"
+                          >
+                            <BookOpen className="w-3.5 h-3.5" />
+                            Voir le brief
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Claude analysis */}
+        {needsReview.length > 0 && (
+          <div className="space-y-3">
+            {analysis ? (
+              <div className="text-left bg-teal/5 border border-teal/20 rounded-xl p-4 space-y-2">
+                <p className="text-xs font-medium text-teal uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Analyse des erreurs
+                </p>
+                <div className="text-xs text-foreground whitespace-pre-wrap leading-relaxed prose-headings:text-sm prose-headings:font-semibold prose-headings:text-foreground">
+                  {analysis}
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={handleAnalyze}
+                disabled={analyzing}
+                className="flex items-center justify-center gap-2 w-full h-12 bg-teal/10 border border-teal/20 rounded-xl text-sm font-medium text-teal hover:bg-teal/20 transition-colors disabled:opacity-50"
+              >
+                <Sparkles className="w-4 h-4" />
+                {analyzing ? "Analyse en cours..." : "Analyser mes erreurs avec Claude"}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Entity-by-entity breakdown */}
         {answers.length > 0 && (
           <div className="text-left space-y-2">
@@ -182,9 +319,10 @@ export function SessionEnd({ answers, sessionType, onReturn }: SessionEndProps) 
                 const config = RESULT_CONFIG[a.result];
                 const Icon = config.icon;
                 return (
-                  <div
+                  <Link
                     key={a.entity_id}
-                    className="flex items-center gap-3 bg-card border border-border rounded-xl px-4 py-3"
+                    href={`/brief/${a.entity_id}`}
+                    className="flex items-center gap-3 bg-card border border-border rounded-xl px-4 py-3 hover:border-teal/40 transition-colors"
                   >
                     <Icon className={`w-4 h-4 flex-shrink-0 ${config.color}`} />
                     <span className="text-sm text-foreground flex-1 truncate">
@@ -192,13 +330,8 @@ export function SessionEnd({ answers, sessionType, onReturn }: SessionEndProps) 
                         ? a.question_text.substring(0, 50) + "..."
                         : a.question_text)}
                     </span>
-                    <Link
-                      href={`/brief/${a.entity_id}`}
-                      className="p-1.5 rounded-lg hover:bg-background transition-colors flex-shrink-0"
-                    >
-                      <BookOpen className="w-4 h-4 text-teal" />
-                    </Link>
-                  </div>
+                    <BookOpen className="w-4 h-4 text-teal flex-shrink-0" />
+                  </Link>
                 );
               })}
             </div>
@@ -206,7 +339,7 @@ export function SessionEnd({ answers, sessionType, onReturn }: SessionEndProps) 
         )}
 
         {/* Coaching message */}
-        {needsReview.length > 0 && (
+        {needsReview.length > 0 && !analysis && (
           <p className="text-xs text-muted-foreground">
             {needsReview.length === total
               ? "Pas de panique — les pré-tests froids servent à activer l'apprentissage. Consulte les briefs pour étudier."
