@@ -2,13 +2,15 @@
 
 import { useEffect } from "react";
 import confetti from "canvas-confetti";
-import type { AnswerRecord } from "@/lib/types";
+import type { AnswerRecord, SessionType } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Check, AlertTriangle, XCircle, BookOpen } from "lucide-react";
+import { Check, AlertTriangle, XCircle, BookOpen, BarChart3, Clock } from "lucide-react";
 import Link from "next/link";
 
 interface SessionEndProps {
   answers: AnswerRecord[];
+  sessionType?: SessionType;
+  sessionId?: string;
   onReturn: () => void;
 }
 
@@ -18,7 +20,16 @@ const RESULT_CONFIG = {
   wrong: { icon: XCircle, color: "text-wrong", bg: "bg-wrong/10", border: "border-wrong/20", label: "Incorrect" },
 };
 
-export function SessionEnd({ answers, onReturn }: SessionEndProps) {
+const SESSION_TYPE_LABELS: Record<string, string> = {
+  short: "Session courte",
+  weekend: "Session weekend",
+  topic_study: "Étude par thème",
+  weekly_review: "Révision hebdomadaire",
+  monthly_review: "Révision mensuelle",
+  weak_items: "Consolidation fragiles",
+};
+
+export function SessionEnd({ answers, sessionType, onReturn }: SessionEndProps) {
   const correct = answers.filter((a) => a.result === "correct").length;
   const partial = answers.filter((a) => a.result === "partial").length;
   const wrong = answers.filter((a) => a.result === "wrong").length;
@@ -67,6 +78,25 @@ export function SessionEnd({ answers, onReturn }: SessionEndProps) {
     (a) => a.result === "wrong" || a.result === "partial"
   );
 
+  // Topic breakdown
+  const topicScores = new Map<string, { correct: number; total: number }>();
+  for (const a of answers) {
+    const topic = a.topic_name || "Autre";
+    const existing = topicScores.get(topic) || { correct: 0, total: 0 };
+    existing.total++;
+    if (a.result === "correct") existing.correct++;
+    topicScores.set(topic, existing);
+  }
+
+  const topicEntries = Array.from(topicScores.entries())
+    .sort((a, b) => (a[1].correct / a[1].total) - (b[1].correct / b[1].total));
+
+  const weakestTopic = topicEntries.length > 1
+    ? topicEntries.find(([, s]) => s.correct / s.total < 0.5)
+    : null;
+
+  const isLongSession = sessionType === "weekend" || sessionType === "weekly_review" || sessionType === "monthly_review";
+
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-8">
       <div className="w-full max-w-sm space-y-6 text-center">
@@ -75,6 +105,10 @@ export function SessionEnd({ answers, onReturn }: SessionEndProps) {
             Session terminée
           </h1>
           <p className="text-muted-foreground">
+            {sessionType && SESSION_TYPE_LABELS[sessionType]
+              ? SESSION_TYPE_LABELS[sessionType]
+              : null}
+            {" — "}
             {total} question{total > 1 ? "s" : ""} répondue{total > 1 ? "s" : ""}
           </p>
         </div>
@@ -98,6 +132,45 @@ export function SessionEnd({ answers, onReturn }: SessionEndProps) {
           )}
         </div>
 
+        {/* Topic breakdown */}
+        {topicEntries.length > 1 && (
+          <div className="text-left space-y-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Par thème
+            </p>
+            <div className="space-y-1.5">
+              {topicEntries.map(([topic, scores]) => {
+                const pct = Math.round((scores.correct / scores.total) * 100);
+                const isWeak = pct < 50;
+                return (
+                  <div
+                    key={topic}
+                    className="flex items-center gap-3 bg-card border border-border rounded-lg px-3 py-2"
+                  >
+                    <span className="text-sm text-foreground flex-1 truncate">
+                      {topic}
+                    </span>
+                    <span className={`text-xs font-medium ${isWeak ? "text-wrong" : pct >= 80 ? "text-correct" : "text-partial"}`}>
+                      {scores.correct}/{scores.total}
+                    </span>
+                    <div className="w-16 h-1.5 bg-border rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${isWeak ? "bg-wrong" : pct >= 80 ? "bg-correct" : "bg-partial"}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {weakestTopic && (
+              <p className="text-xs text-wrong">
+                Focus recommandé : {weakestTopic[0]}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Entity-by-entity breakdown */}
         {answers.length > 0 && (
           <div className="text-left space-y-2">
@@ -115,9 +188,9 @@ export function SessionEnd({ answers, onReturn }: SessionEndProps) {
                   >
                     <Icon className={`w-4 h-4 flex-shrink-0 ${config.color}`} />
                     <span className="text-sm text-foreground flex-1 truncate">
-                      {a.question_text.length > 50
+                      {a.entity_name || (a.question_text.length > 50
                         ? a.question_text.substring(0, 50) + "..."
-                        : a.question_text}
+                        : a.question_text)}
                     </span>
                     <Link
                       href={`/brief/${a.entity_id}`}
@@ -141,12 +214,33 @@ export function SessionEnd({ answers, onReturn }: SessionEndProps) {
           </p>
         )}
 
-        <Button
-          onClick={onReturn}
-          className="w-full h-14 bg-teal hover:bg-teal-light text-white font-semibold"
-        >
-          Retour au tableau de bord
-        </Button>
+        {/* Post-session actions */}
+        <div className="space-y-3">
+          {isLongSession && total >= 10 && (
+            <Link
+              href="/weekly"
+              className="flex items-center justify-center gap-2 w-full h-12 bg-teal/10 border border-teal/20 rounded-xl text-sm font-medium text-teal hover:bg-teal/20 transition-colors"
+            >
+              <BarChart3 className="w-4 h-4" />
+              Voir l&apos;analyse de la semaine
+            </Link>
+          )}
+
+          <Link
+            href="/history"
+            className="flex items-center justify-center gap-2 w-full h-12 bg-card border border-border rounded-xl text-sm text-foreground hover:border-teal/50 transition-colors"
+          >
+            <Clock className="w-4 h-4" />
+            Historique complet
+          </Link>
+
+          <Button
+            onClick={onReturn}
+            className="w-full h-14 bg-teal hover:bg-teal-light text-white font-semibold"
+          >
+            Retour au tableau de bord
+          </Button>
+        </div>
       </div>
     </div>
   );

@@ -87,7 +87,9 @@ export interface TestResultRecord {
   is_pretest: boolean
   image_url: string | null
   interleaved_session: boolean
-  entity?: Entity
+  entity?: Entity | { name: string; chapter_id: string; chapter?: { name: string; topic?: { name: string } } }
+  session?: { session_type: SessionType } | null
+  created_at?: string
 }
 
 export interface Session {
@@ -128,6 +130,8 @@ export interface SessionState {
 
 export interface AnswerRecord {
   entity_id: string
+  entity_name?: string
+  topic_name?: string
   question_text: string
   question_type: QuestionType
   user_answer: string | null

@@ -277,7 +277,7 @@ export async function getTestResults(
   supabase: SupabaseClient,
   filters: { entityId?: string; sessionId?: string; dateFrom?: string; dateTo?: string }
 ): Promise<TestResultRecord[]> {
-  let query = supabase.from('test_results').select('*, entity:entities(name, chapter_id)')
+  let query = supabase.from('test_results').select('*, entity:entities(name, chapter_id, chapter:chapters(name, topic:topics(name))), session:sessions(session_type)')
   if (filters.entityId) query = query.eq('entity_id', filters.entityId)
   if (filters.sessionId) query = query.eq('session_id', filters.sessionId)
   if (filters.dateFrom) query = query.gte('date', filters.dateFrom)
@@ -392,6 +392,7 @@ export async function getWeakCount(supabase: SupabaseClient, userId: string): Pr
     .in('status', ['active'])
     .lte('correct_streak', 1)
     .eq('pre_test_done', true)
+    .eq('pre_test_queued', false)
   if (error) throw error
   return count ?? 0
 }
@@ -407,14 +408,18 @@ export async function assembleQueue(
   const today = new Date().toISOString().split('T')[0]
   const queue: QueueItem[] = []
 
-  // 0. Get parent IDs (entities that have children) to flag synthesis questions
-  const { data: childRows, error: childErr } = await supabase
-    .from('entities')
-    .select('parent_id')
-    .eq('user_id', userId)
-    .not('parent_id', 'is', null)
-  if (childErr) throw childErr
-  const parentIds = new Set((childRows || []).map(r => r.parent_id).filter(Boolean))
+  // 0. Get parent IDs — graceful fallback if parent_id column not yet migrated
+  let parentIds = new Set<string>()
+  try {
+    const { data: childRows } = await supabase
+      .from('entities')
+      .select('parent_id')
+      .eq('user_id', userId)
+      .not('parent_id', 'is', null)
+    parentIds = new Set((childRows || []).map(r => r.parent_id).filter(Boolean))
+  } catch {
+    // parent_id column may not exist yet — proceed without synthesis flags
+  }
 
   // 1. Pre-tests first
   const { data: pretestEntities, error: pretestErr } = await supabase
