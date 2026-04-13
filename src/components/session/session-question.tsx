@@ -6,6 +6,8 @@ import type { Entity, QuestionType, TestResult } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Check, AlertTriangle, XCircle, StickyNote } from "lucide-react";
+import { ImageGallery } from "@/components/ui/image-gallery";
+import type { EntityImage } from "@/lib/types";
 
 interface SessionQuestionProps {
   entity: Entity;
@@ -14,6 +16,7 @@ interface SessionQuestionProps {
     question: string;
     model_answer: string;
     key_points: string[];
+    image_urls?: string[];
   };
   isPretest: boolean;
   onAnswer: (result: TestResult, userAnswer: string | null, feedback?: string, confidence?: number) => void;
@@ -162,6 +165,26 @@ export function SessionQuestion({
       <h3 className="text-sm font-medium text-muted-foreground mb-1">
         {entity.name}
       </h3>
+
+      {/* Entity images */}
+      {question.image_urls && question.image_urls.length > 0 && (
+        <div className="mb-3">
+          <ImageGallery
+            images={question.image_urls.map((url, i) => ({
+              id: `session-img-${i}`,
+              entity_id: entity.id,
+              user_id: entity.user_id,
+              storage_path: "",
+              caption: null,
+              modality: null,
+              display_order: i,
+              created_at: "",
+              url,
+            } as EntityImage))}
+            compact={false}
+          />
+        </div>
+      )}
 
       {/* Question */}
       <div className="bg-card border border-border rounded-xl p-5 mb-4" role="region" aria-label="Question">

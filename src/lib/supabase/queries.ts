@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type {
-  Entity, Topic, Chapter, Source, Brief, Session, SessionState,
+  Entity, EntityImage, Topic, Chapter, Source, Brief, Session, SessionState,
   TestResultRecord, UserSettings, QueueItem, EntityType, SessionType,
   TopicHealth, HealthStatus,
 } from '@/lib/types'
@@ -525,4 +525,62 @@ function interleaveByTopic<T extends Record<string, any>>(entities: T[]): T[] {
     }
   }
   return result
+}
+
+// ─── Entity Images ──────────────────────────────────────
+export async function getEntityImages(
+  supabase: SupabaseClient,
+  entityId: string
+): Promise<EntityImage[]> {
+  const { data, error } = await supabase
+    .from('entity_images')
+    .select('*')
+    .eq('entity_id', entityId)
+    .order('display_order')
+    .order('created_at')
+  if (error) throw error
+  return data as EntityImage[]
+}
+
+export async function createEntityImage(
+  supabase: SupabaseClient,
+  image: {
+    entity_id: string
+    user_id: string
+    storage_path: string
+    caption?: string | null
+    modality?: string | null
+    display_order?: number
+  }
+): Promise<EntityImage> {
+  const { data, error } = await supabase
+    .from('entity_images')
+    .insert(image)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as EntityImage
+}
+
+export async function updateEntityImage(
+  supabase: SupabaseClient,
+  imageId: string,
+  updates: { caption?: string | null; modality?: string | null; display_order?: number }
+): Promise<void> {
+  const { error } = await supabase
+    .from('entity_images')
+    .update(updates)
+    .eq('id', imageId)
+  if (error) throw error
+}
+
+export async function deleteEntityImage(
+  supabase: SupabaseClient,
+  imageId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('entity_images')
+    .delete()
+    .eq('id', imageId)
+  if (error) throw error
 }

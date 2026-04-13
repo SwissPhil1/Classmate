@@ -11,6 +11,7 @@ import {
   createSession,
   getEntity,
   getChildEntities,
+  getEntityImages,
   getSessionState,
   upsertSessionState,
   deleteSessionState,
@@ -19,6 +20,7 @@ import {
   createTestResult,
   getBrief,
 } from "@/lib/supabase/queries";
+import { getImagePublicUrl } from "@/lib/supabase/storage";
 import { calculateNextReview } from "@/lib/spaced-repetition";
 import type {
   SessionType,
@@ -56,6 +58,7 @@ function SessionContent() {
     question: string;
     model_answer: string;
     key_points: string[];
+    image_urls?: string[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [questionLoading, setQuestionLoading] = useState(false);
@@ -192,6 +195,17 @@ function SessionContent() {
       const entity = await getEntity(supabase, item.entity_id);
       setCurrentEntity(entity);
 
+      // Fetch images for this entity
+      let imageUrls: string[] = item.image_urls || [];
+      if (imageUrls.length === 0) {
+        try {
+          const imgs = await getEntityImages(supabase, item.entity_id);
+          imageUrls = imgs.map((img) => getImagePublicUrl(supabase, img.storage_path));
+        } catch {
+          // Images optional — don't block the session
+        }
+      }
+
       // If question was already generated and cached, reuse it
       if (item.question && item.model_answer) {
         setCurrentQuestion({
@@ -199,6 +213,7 @@ function SessionContent() {
           question: item.question,
           model_answer: item.model_answer,
           key_points: item.key_points || [],
+          image_urls: imageUrls.length > 0 ? imageUrls : undefined,
         });
         setQuestionLoading(false);
         return;
@@ -209,7 +224,9 @@ function SessionContent() {
         question: string;
         model_answer: string;
         key_points: string[];
+        image_urls?: string[];
       } | null = null;
+      const hasImages = imageUrls.length > 0;
 
       // Fetch children for synthesis questions
       let childrenNames: string[] = [];
@@ -242,6 +259,7 @@ function SessionContent() {
               topic: entity.chapter?.topic?.name,
               reference_text: entity.reference_text,
               notes: entity.notes,
+              has_images: hasImages,
               ...(item.is_synthesis && { is_synthesis: true, children_names: childrenNames, children_references: childrenRefs }),
             }),
           });
@@ -296,6 +314,7 @@ function SessionContent() {
             exam_component: entity.chapter?.topic?.exam_component,
             notes: entity.notes,
             reference_text: entity.reference_text,
+            has_images: hasImages,
             ...(item.is_synthesis && { is_synthesis: true, children_names: childrenNames, children_references: childrenRefs }),
           }),
         });
@@ -316,6 +335,7 @@ function SessionContent() {
       }
 
       if (generated) {
+        if (hasImages) generated.image_urls = imageUrls;
         setCurrentQuestion(generated);
         // Cache in queue so reloads don't regenerate
         await cacheQuestionInQueue(currentIndex, generated);

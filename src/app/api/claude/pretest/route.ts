@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
-    const { entity_name, entity_type, chapter, topic, reference_text, notes, is_synthesis, children_names, children_references } = await request.json()
+    const { entity_name, entity_type, chapter, topic, reference_text, notes, is_synthesis, children_names, children_references, has_images } = await request.json()
 
     // Synthesis mode: parent entity pretest
     if (is_synthesis && children_names?.length > 0) {
@@ -55,9 +55,19 @@ Retourne UNIQUEMENT un JSON valide:
       ? `\n\nCORRECTIONS DU CANDIDAT (priorité sur toute autre source):\n${notes}`
       : ''
 
+    const imageInstructions = has_images
+      ? `\n\nIMPORTANT — IMAGES DISPONIBLES:
+L'étudiant verra des images radiologiques de cette entité pendant la question.
+Adapte la question pour exploiter les images:
+- Format OBLIGATOIRE: B (réponse orale/auto-évaluée) — l'étudiant doit décrire ce qu'il voit.
+- Question type: "Observez cette image. Quel diagnostic évoquez-vous ? Décrivez les signes radiologiques qui vous orientent."
+- La réponse modèle doit inclure les signes d'imagerie ATTENDUS sur les images.
+- NE PAS demander de décrire la modalité ou la technique — l'image parle d'elle-même.`
+      : ''
+
     const systemPrompt = `Tu es un coach expert pour l'examen FMH2 de radiologie suisse. Génère une question de pré-test froid sur: ${entity_name}.
 Le candidat n'a PAS encore étudié cette entité — la tentative échouée est intentionnelle et améliore l'apprentissage ultérieur.
-
+${imageInstructions}
 Type selon entity_type:
 - single_diagnosis → scénario clinique Format A (réponse tapée)
 - ddx_pair → question de différenciation Format B (réponse orale ouverte)

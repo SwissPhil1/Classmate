@@ -7,6 +7,7 @@ export type TestResult = 'correct' | 'partial' | 'wrong'
 export type SessionType = 'short' | 'weekend' | 'topic_study' | 'weekly_review' | 'monthly_review' | 'weak_items'
 export type ThemeMode = 'dark' | 'light'
 export type DifficultyLevel = 1 | 2 | 3
+export type ImageModality = 'CT' | 'IRM' | 'RX' | 'US' | 'autre'
 
 // ─── Database Models ─────────────────────────────────────
 export interface Topic {
@@ -56,6 +57,19 @@ export interface Entity {
   source?: Source
   brief?: Brief
   children?: Entity[]
+  images?: EntityImage[]
+}
+
+export interface EntityImage {
+  id: string
+  entity_id: string
+  user_id: string
+  storage_path: string
+  caption: string | null
+  modality: ImageModality | null
+  display_order: number
+  created_at: string
+  url?: string // derived signed URL, not in DB
 }
 
 export interface QAPair {
@@ -116,6 +130,7 @@ export interface QueueItem {
   question?: string
   model_answer?: string
   key_points?: string[]
+  image_urls?: string[]
 }
 
 export interface SessionState {

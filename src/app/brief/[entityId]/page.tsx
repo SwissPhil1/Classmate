@@ -4,13 +4,17 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
-import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities } from "@/lib/supabase/queries";
-import type { Entity, Brief } from "@/lib/types";
+import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities, getEntityImages, createEntityImage, deleteEntityImage, updateEntityImage } from "@/lib/supabase/queries";
+import { uploadEntityImage, getImagePublicUrl, deleteStorageImage } from "@/lib/supabase/storage";
+import type { Entity, Brief, EntityImage, ImageModality } from "@/lib/types";
 import { BriefContent } from "@/components/brief/brief-content";
 import { ReferenceTextEditor } from "@/components/brief/reference-text-editor";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ImageUpload } from "@/components/ui/image-upload";
+import { ImageGallery } from "@/components/ui/image-gallery";
+import { ArrowLeft, ExternalLink, ImagePlus, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 import Link from "next/link";
 
 export default function BriefPage() {
@@ -27,10 +31,13 @@ export default function BriefPage() {
   const [entity, setEntity] = useState<Entity | null>(null);
   const [brief, setBrief] = useState<Brief | null>(null);
   const [children, setChildren] = useState<Entity[]>([]);
+  const [images, setImages] = useState<EntityImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [notes, setNotes] = useState("");
   const [notesSaving, setNotesSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [showImageUpload, setShowImageUpload] = useState(false);
 
   const isParent = children.length > 0;
 
@@ -40,12 +47,20 @@ export default function BriefPage() {
         const e = await getEntity(supabase, entityId);
         setEntity(e);
         setNotes(e.notes || "");
-        const [b, ch] = await Promise.all([
+        const [b, ch, imgs] = await Promise.all([
           getBrief(supabase, entityId),
           getChildEntities(supabase, entityId),
+          getEntityImages(supabase, entityId),
         ]);
         setBrief(b);
         setChildren(ch);
+        // Attach public URLs to images
+        setImages(
+          imgs.map((img) => ({
+            ...img,
+            url: getImagePublicUrl(supabase, img.storage_path),
+          }))
+        );
       } catch (err) {
         console.error("Brief load error:", err);
       } finally {
@@ -111,6 +126,56 @@ export default function BriefPage() {
       console.error("Save notes error:", err);
     } finally {
       setNotesSaving(false);
+    }
+  };
+
+  const handleImageUpload = async (file: File, modality: ImageModality | null, caption: string | null) => {
+    if (!entity || !user) return;
+    setUploading(true);
+    try {
+      const storagePath = await uploadEntityImage(supabase, user.id, entity.id, file);
+      const record = await createEntityImage(supabase, {
+        entity_id: entity.id,
+        user_id: user.id,
+        storage_path: storagePath,
+        caption,
+        modality,
+        display_order: images.length,
+      });
+      const url = getImagePublicUrl(supabase, storagePath);
+      setImages((prev) => [...prev, { ...record, url }]);
+      setShowImageUpload(false);
+      toast.success("Image ajoutée");
+    } catch (err) {
+      console.error("Image upload error:", err);
+      toast.error("Erreur lors de l'upload");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleImageDelete = async (imageId: string) => {
+    const image = images.find((i) => i.id === imageId);
+    if (!image) return;
+    try {
+      await deleteStorageImage(supabase, image.storage_path);
+      await deleteEntityImage(supabase, imageId);
+      setImages((prev) => prev.filter((i) => i.id !== imageId));
+      toast.success("Image supprimée");
+    } catch (err) {
+      console.error("Image delete error:", err);
+      toast.error("Erreur lors de la suppression");
+    }
+  };
+
+  const handleImageUpdate = async (imageId: string, caption: string | null, modality: ImageModality | null) => {
+    try {
+      await updateEntityImage(supabase, imageId, { caption, modality });
+      setImages((prev) =>
+        prev.map((i) => (i.id === imageId ? { ...i, caption, modality } : i))
+      );
+    } catch (err) {
+      console.error("Image update error:", err);
     }
   };
 
@@ -190,6 +255,47 @@ export default function BriefPage() {
             </div>
           </div>
         )}
+
+        {/* Images section */}
+        <div className="mb-6 space-y-3">
+          {images.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Images ({images.length})
+              </p>
+              <ImageGallery
+                images={images}
+                onDelete={handleImageDelete}
+                onUpdateCaption={handleImageUpdate}
+              />
+            </div>
+          )}
+
+          {showImageUpload ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Ajouter une image
+                </p>
+                <button
+                  onClick={() => setShowImageUpload(false)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Annuler
+                </button>
+              </div>
+              <ImageUpload onUpload={handleImageUpload} uploading={uploading} />
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowImageUpload(true)}
+              className="flex items-center gap-2 text-sm text-teal hover:text-teal-light transition-colors"
+            >
+              <ImagePlus className="w-4 h-4" />
+              {images.length > 0 ? "Ajouter une image" : "Ajouter des images (Aunt Minnie, Radiopaedia...)"}
+            </button>
+          )}
+        </div>
 
         {brief ? (
           <>

@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
-    const { entity_name, entity_type, cycle_count, difficulty_level, chapter, topic, exam_component, notes, reference_text, is_synthesis, children_names, children_references } = await request.json()
+    const { entity_name, entity_type, cycle_count, difficulty_level, chapter, topic, exam_component, notes, reference_text, is_synthesis, children_names, children_references, has_images } = await request.json()
 
     // Synthesis mode: parent entity with children
     if (is_synthesis && children_names?.length > 0) {
@@ -59,9 +59,19 @@ Retourne UNIQUEMENT un JSON valide:
       ? `\n\nCORRECTIONS DU CANDIDAT (priorité sur toute autre source):\n${notes}`
       : ''
 
+    const imageBlock = has_images
+      ? `\n\nIMAGES DISPONIBLES — L'étudiant verra des images radiologiques de cette entité.
+Adapte la question pour exploiter les images:
+- Difficulté 1: "Décrivez les findings radiologiques visibles sur cette image." (Format B)
+- Difficulté 2: "Identifiez la pathologie et justifiez avec les signes d'imagerie." (Format B)
+- Difficulté 3: "DDx à partir de cette image + intégration clinique + prise en charge." (Format B)
+- Si images présentes, Format B est PRÉFÉRÉ (l'étudiant s'auto-évalue après la révélation de la réponse modèle).
+- La réponse modèle doit décrire les signes attendus sur les images.\n`
+      : ''
+
     const systemPrompt = `Génère une question de re-test froid niveau FMH2 sur: ${entity_name}.
 Difficulté ${difficulty_level}, cycle ${cycle_count}.
-${referenceBlock}
+${imageBlock}${referenceBlock}
 
 Règles de difficulté:
 1: Présentation classique, cas typique
