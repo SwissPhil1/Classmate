@@ -1,16 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { getTestResults } from "@/lib/supabase/queries";
 import type { TestResultRecord, TestResult } from "@/lib/types";
-import { ArrowLeft, BookOpen, Check, AlertTriangle, XCircle, Sparkles } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, AlertTriangle, XCircle, Sparkles, ChevronDown } from "lucide-react";
 import Link from "next/link";
 
 type DateRange = "1d" | "7d" | "30d" | "all";
 type ResultFilter = TestResult | "all";
+
+/** Lightweight markdown→HTML for analysis cards */
+function renderAnalysisMarkdown(md: string): string {
+  return md
+    .replace(/^### (.+)$/gm, '<h3 class="text-sm font-semibold text-foreground mt-3 mb-1">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 class="text-sm font-bold text-foreground mt-4 mb-1">$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1 class="text-base font-bold text-foreground mt-4 mb-2">$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^[-•]\s(.+)$/gm, '<li class="ml-4 list-disc list-inside">$1</li>')
+    .replace(/\n\n/g, '<br/>')
+    .replace(/\n/g, '<br/>');
+}
 
 const RESULT_CONFIG = {
   correct: { icon: Check, color: "text-correct", bg: "bg-correct/10", border: "border-correct/20", label: "Correct" },
@@ -56,6 +69,12 @@ export default function HistoryPage() {
   const [resultFilter, setResultFilter] = useState<ResultFilter>("all");
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisExpanded, setAnalysisExpanded] = useState(false);
+
+  const analysisHtml = useMemo(
+    () => (analysis ? renderAnalysisMarkdown(analysis) : ""),
+    [analysis]
+  );
 
   useEffect(() => {
     if (!userLoading && !user) router.push("/login");
@@ -64,7 +83,7 @@ export default function HistoryPage() {
   useEffect(() => {
     if (!user) return;
     setLoading(true);
-    setAnalysis(null);
+    setAnalysis(null); setAnalysisExpanded(false);
 
     const dateFrom = getDateFrom(dateRange);
     const dateTo = new Date().toISOString().split("T")[0];
@@ -220,7 +239,7 @@ export default function HistoryPage() {
               {/* Result filter */}
               <div className="flex gap-2 justify-center">
                 <button
-                  onClick={() => { setResultFilter("all"); setAnalysis(null); }}
+                  onClick={() => { setResultFilter("all"); setAnalysis(null); setAnalysisExpanded(false); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                     resultFilter === "all"
                       ? "bg-foreground/10 text-foreground"
@@ -235,7 +254,7 @@ export default function HistoryPage() {
                   return (
                     <button
                       key={r}
-                      onClick={() => { setResultFilter(resultFilter === r ? "all" : r); setAnalysis(null); }}
+                      onClick={() => { setResultFilter(resultFilter === r ? "all" : r); setAnalysis(null); setAnalysisExpanded(false); }}
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                         resultFilter === r
                           ? `${config.bg} ${config.color} border ${config.border}`
@@ -253,13 +272,26 @@ export default function HistoryPage() {
             {errorsInFiltered.length > 0 && (
               <div className="space-y-3">
                 {analysis ? (
-                  <div className="text-left bg-teal/5 border border-teal/20 rounded-xl p-4 space-y-2">
-                    <p className="text-xs font-medium text-teal uppercase tracking-wider flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5" />
-                      Analyse des erreurs
-                    </p>
-                    <div className="text-xs text-foreground whitespace-pre-wrap leading-relaxed prose-headings:text-sm prose-headings:font-semibold prose-headings:text-foreground">
-                      {analysis}
+                  <div className="text-left bg-teal/5 border border-teal/20 rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => setAnalysisExpanded(!analysisExpanded)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-teal/10 transition-colors"
+                    >
+                      <p className="text-xs font-medium text-teal uppercase tracking-wider flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Rappels — sujets fragiles
+                      </p>
+                      <ChevronDown className={`w-4 h-4 text-teal transition-transform ${analysisExpanded ? "rotate-180" : ""}`} />
+                    </button>
+                    <div
+                      className={`px-4 pb-4 text-xs text-foreground leading-relaxed transition-all ${
+                        analysisExpanded ? "" : "max-h-[180px] overflow-hidden relative"
+                      }`}
+                    >
+                      <div dangerouslySetInnerHTML={{ __html: analysisHtml }} />
+                      {!analysisExpanded && (
+                        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-teal/5 to-transparent" />
+                      )}
                     </div>
                   </div>
                 ) : (

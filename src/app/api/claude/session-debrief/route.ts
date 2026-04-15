@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     const { mode } = body
 
     if (mode === 'history') {
-      // ─── History analysis: topic performance patterns ───
+      // ─── History analysis: weak topic identification + key reminders ───
       const { summaries, period, total_correct, total_partial, total_wrong } = body as {
         summaries: EntitySummary[]
         period: string
@@ -35,21 +35,30 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Aucun résultat à analyser' }, { status: 400 })
       }
 
-      const systemPrompt = `Tu es un tuteur expert en radiologie FMH2 suisse. L'étudiant te présente ses résultats d'étude.
+      const systemPrompt = `Tu es un tuteur expert en radiologie FMH2 suisse. L'étudiant te montre ses résultats d'étude pour identifier ses points faibles et les réviser immédiatement.
 
-Analyse ses performances pour fournir :
+TON OBJECTIF : Identifier les sujets les plus faibles et fournir des rappels flash pour activer la rétention MAINTENANT.
 
-1. **Bilan par thème** : Quels sujets sont maîtrisés vs fragiles ? Base-toi sur les résultats (correct/partiel/incorrect), PAS sur le contenu des réponses tapées.
-2. **Rappels clés** : Pour chaque thème problématique (partiel ou incorrect), donne 2-3 rappels essentiels : critères discriminants, pièges classiques, points à retenir. Sois spécifique au sujet (pas de conseils génériques).
-3. **Priorités** : Quels sujets revoir en priorité ?
+FORMAT STRICT À SUIVRE :
 
-IMPORTANT :
-- L'étudiant répond souvent à l'oral puis s'auto-évalue (correct/partiel/incorrect). Ne commente JAMAIS l'absence de réponse tapée.
-- Concentre-toi uniquement sur les RÉSULTATS et les SUJETS, pas sur la forme des réponses.
-- Pour les rappels, sois concis mais précis — l'objectif est d'aider à mémoriser les points discriminants.
+1. Commence par une ligne de résumé : "X sujets fragiles sur Y testés"
 
-Format markdown structuré, en français. Sois direct et utile.
-Limite-toi à 600 mots maximum.`
+2. Pour chaque sujet faible (partiel ou incorrect), utilise exactement ce format :
+
+**🔴 [Nom du sujet]** (résultat)
+- **Point clé 1** : [rappel concis — le critère discriminant ou le piège principal]
+- **Point clé 2** : [un autre point essentiel]
+- **Mnémo** : [astuce mémoire si pertinente, ex: acronyme, association]
+
+3. Termine par "✅ Sujets maîtrisés : [liste courte]" si il y en a.
+
+RÈGLES :
+- Maximum 3-4 sujets faibles détaillés (les pires d'abord)
+- 2-3 points clés par sujet, PAS PLUS
+- Chaque point clé = 1 ligne, concis et spécifique (critère discriminant, diagnostic différentiel clé, signe pathognomonique)
+- PAS de paragraphes, PAS de conseils méthodologiques génériques, PAS de commentaires sur les réponses tapées
+- L'objectif est que l'étudiant relise cette analyse en 30 secondes et retienne les points discriminants
+- Sois un aide-mémoire, pas un rapport`
 
       // Group summaries by topic
       const topicGroups = new Map<string, EntitySummary[]>()
@@ -59,12 +68,8 @@ Limite-toi à 600 mots maximum.`
         topicGroups.get(topic)!.push(s)
       }
 
-      // Format the data per topic
+      // Format the data per topic — focus on entity names and results
       const topicTexts = Array.from(topicGroups.entries()).map(([topic, entities]) => {
-        const topicCorrect = entities.reduce((n, e) => n + e.results.filter(r => r.result === 'correct').length, 0)
-        const topicPartial = entities.reduce((n, e) => n + e.results.filter(r => r.result === 'partial').length, 0)
-        const topicWrong = entities.reduce((n, e) => n + e.results.filter(r => r.result === 'wrong').length, 0)
-
         const entityLines = entities.map(e => {
           const counts = {
             correct: e.results.filter(r => r.result === 'correct').length,
@@ -72,32 +77,22 @@ Limite-toi à 600 mots maximum.`
             wrong: e.results.filter(r => r.result === 'wrong').length,
           }
           const resultStr = [
-            counts.correct > 0 ? `${counts.correct} correct` : '',
-            counts.partial > 0 ? `${counts.partial} partiel` : '',
-            counts.wrong > 0 ? `${counts.wrong} incorrect` : '',
-          ].filter(Boolean).join(', ')
+            counts.correct > 0 ? `${counts.correct}✓` : '',
+            counts.partial > 0 ? `${counts.partial}~` : '',
+            counts.wrong > 0 ? `${counts.wrong}✗` : '',
+          ].filter(Boolean).join(' ')
 
-          // Include feedback from wrong/partial for context
-          const feedbackLines = e.results
-            .filter(r => r.result !== 'correct' && r.feedback)
-            .slice(0, 2)
-            .map(r => `  Feedback: ${r.feedback}`)
-            .join('\n')
-
-          return `- ${e.entity_name} : ${resultStr}${feedbackLines ? '\n' + feedbackLines : ''}`
+          return `- ${e.entity_name} : ${resultStr}`
         }).join('\n')
 
-        return `### ${topic} (${topicCorrect} correct, ${topicPartial} partiel, ${topicWrong} incorrect)\n${entityLines}`
+        return `### ${topic}\n${entityLines}`
       }).join('\n\n')
 
-      const userMessage = `Période : ${period}
-${total} questions au total : ${total_correct} correct, ${total_partial} partiel, ${total_wrong} incorrect
-
-Résultats par thème :
+      const userMessage = `${period} — ${total} questions : ${total_correct}✓ ${total_partial}~ ${total_wrong}✗
 
 ${topicTexts}`
 
-      const response = await callClaude(systemPrompt, userMessage, 2048)
+      const response = await callClaude(systemPrompt, userMessage, 1500)
       return NextResponse.json({ analysis: response })
     }
 
