@@ -72,24 +72,34 @@ function SessionContent() {
   useEffect(() => {
     if (!user || sessionInitialized) return;
 
-    const resumeId = searchParams.get("resume");
-    const initSessionType = (searchParams.get("type") || "short") as SessionType;
-    const topicFilter = searchParams.get("topic") || undefined;
-    setSessionType(initSessionType);
-
     async function init() {
       try {
-        if (resumeId) {
-          // Resume existing session
-          const state = await getSessionState(supabase, user!.id);
-          if (state) {
-            setSessionId(state.session_id);
-            setQueue(state.queue);
-            setCurrentIndex(state.current_question_index);
-            setAnswers(state.answers_so_far as AnswerRecord[]);
+        // ALWAYS check for existing session state first — handles tab-switch,
+        // full page reload, and browser eviction on mobile
+        const existingState = await getSessionState(supabase, user!.id);
+
+        if (existingState) {
+          // Resume from saved state
+          setSessionId(existingState.session_id);
+          setQueue(existingState.queue);
+          setCurrentIndex(existingState.current_question_index);
+          setAnswers(existingState.answers_so_far as AnswerRecord[]);
+
+          // Fetch session type from the existing session
+          const { data: sessionData } = await supabase
+            .from("sessions")
+            .select("session_type")
+            .eq("id", existingState.session_id)
+            .single();
+          if (sessionData) {
+            setSessionType(sessionData.session_type as SessionType);
           }
         } else {
-          // Create new session
+          // No existing state — create new session
+          const initSessionType = (searchParams.get("type") || "short") as SessionType;
+          const topicFilter = searchParams.get("topic") || undefined;
+          setSessionType(initSessionType);
+
           const session = await createSession(supabase, {
             user_id: user!.id,
             session_type: initSessionType,

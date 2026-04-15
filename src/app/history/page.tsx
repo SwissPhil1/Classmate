@@ -6,10 +6,10 @@ import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { getTestResults } from "@/lib/supabase/queries";
 import type { TestResultRecord, TestResult } from "@/lib/types";
-import { ArrowLeft, BookOpen, Check, AlertTriangle, XCircle } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, AlertTriangle, XCircle, Sparkles } from "lucide-react";
 import Link from "next/link";
 
-type DateRange = "7d" | "30d" | "all";
+type DateRange = "1d" | "7d" | "30d" | "all";
 type ResultFilter = TestResult | "all";
 
 const RESULT_CONFIG = {
@@ -38,6 +38,7 @@ function formatDateHeader(dateStr: string): string {
 
 function getDateFrom(range: DateRange): string | undefined {
   if (range === "all") return undefined;
+  if (range === "1d") return new Date().toISOString().split("T")[0];
   const now = new Date();
   const days = range === "7d" ? 7 : 30;
   const from = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
@@ -53,6 +54,8 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState<DateRange>("7d");
   const [resultFilter, setResultFilter] = useState<ResultFilter>("all");
+  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
   useEffect(() => {
     if (!userLoading && !user) router.push("/login");
@@ -61,6 +64,7 @@ export default function HistoryPage() {
   useEffect(() => {
     if (!user) return;
     setLoading(true);
+    setAnalysis(null);
 
     const dateFrom = getDateFrom(dateRange);
     const dateTo = new Date().toISOString().split("T")[0];
@@ -90,6 +94,37 @@ export default function HistoryPage() {
   const correct = results.filter((r) => r.result === "correct").length;
   const partial = results.filter((r) => r.result === "partial").length;
   const wrong = results.filter((r) => r.result === "wrong").length;
+
+  const errorsInFiltered = filtered.filter(
+    (r) => r.result === "wrong" || r.result === "partial"
+  );
+
+  const handleAnalyze = async () => {
+    if (errorsInFiltered.length === 0) return;
+    setAnalyzing(true);
+    try {
+      const errors = errorsInFiltered.map((r) => ({
+        entity_name:
+          (r.entity as { name?: string } | undefined)?.name || "Entité inconnue",
+        question: r.question_text,
+        user_answer: r.user_answer,
+        feedback: r.feedback,
+        result: r.result,
+      }));
+
+      const res = await fetch("/api/claude/session-debrief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ errors, session_type: "short" }),
+      });
+      const data = await res.json();
+      setAnalysis(data.analysis || data.error);
+    } catch {
+      setAnalysis("Analyse indisponible temporairement");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -134,8 +169,8 @@ export default function HistoryPage() {
             {/* Filters */}
             <div className="space-y-2">
               {/* Date range */}
-              <div className="flex gap-2 justify-center">
-                {([["7d", "7 jours"], ["30d", "30 jours"], ["all", "Tout"]] as const).map(
+              <div className="flex gap-2 justify-center flex-wrap">
+                {([["1d", "Aujourd'hui"], ["7d", "7 jours"], ["30d", "30 jours"], ["all", "Tout"]] as const).map(
                   ([value, label]) => (
                     <button
                       key={value}
@@ -155,7 +190,7 @@ export default function HistoryPage() {
               {/* Result filter */}
               <div className="flex gap-2 justify-center">
                 <button
-                  onClick={() => setResultFilter("all")}
+                  onClick={() => { setResultFilter("all"); setAnalysis(null); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                     resultFilter === "all"
                       ? "bg-foreground/10 text-foreground"
@@ -170,7 +205,7 @@ export default function HistoryPage() {
                   return (
                     <button
                       key={r}
-                      onClick={() => setResultFilter(resultFilter === r ? "all" : r)}
+                      onClick={() => { setResultFilter(resultFilter === r ? "all" : r); setAnalysis(null); }}
                       className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                         resultFilter === r
                           ? `${config.bg} ${config.color} border ${config.border}`
@@ -183,6 +218,32 @@ export default function HistoryPage() {
                 })}
               </div>
             </div>
+
+            {/* Claude analysis */}
+            {errorsInFiltered.length > 0 && (
+              <div className="space-y-3">
+                {analysis ? (
+                  <div className="text-left bg-teal/5 border border-teal/20 rounded-xl p-4 space-y-2">
+                    <p className="text-xs font-medium text-teal uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Analyse des erreurs
+                    </p>
+                    <div className="text-xs text-foreground whitespace-pre-wrap leading-relaxed prose-headings:text-sm prose-headings:font-semibold prose-headings:text-foreground">
+                      {analysis}
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleAnalyze}
+                    disabled={analyzing}
+                    className="flex items-center justify-center gap-2 w-full h-12 bg-teal/10 border border-teal/20 rounded-xl text-sm font-medium text-teal hover:bg-teal/20 transition-colors disabled:opacity-50"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    {analyzing ? "Analyse en cours..." : `Analyser mes erreurs avec Claude (${errorsInFiltered.length})`}
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Results */}
             {sortedDates.length === 0 ? (
