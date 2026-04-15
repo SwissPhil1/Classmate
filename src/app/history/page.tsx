@@ -99,23 +99,53 @@ export default function HistoryPage() {
     (r) => r.result === "wrong" || r.result === "partial"
   );
 
+  const periodLabel = dateRange === "1d" ? "Aujourd'hui"
+    : dateRange === "7d" ? "Les 7 derniers jours"
+    : dateRange === "30d" ? "Les 30 derniers jours"
+    : "Toute la période";
+
   const handleAnalyze = async () => {
     if (errorsInFiltered.length === 0) return;
     setAnalyzing(true);
     try {
-      const errors = errorsInFiltered.map((r) => ({
-        entity_name:
-          (r.entity as { name?: string } | undefined)?.name || "Entité inconnue",
-        question: r.question_text,
-        user_answer: r.user_answer,
-        feedback: r.feedback,
-        result: r.result,
-      }));
+      // Group ALL filtered results by entity with topic info
+      type EntityEntry = { name: string; chapter?: { name: string; topic?: { name: string } } };
+      const entityMap = new Map<string, {
+        entity_name: string;
+        topic_name: string;
+        chapter_name: string;
+        results: { result: string; question: string; feedback: string | null }[];
+      }>();
+
+      for (const r of filtered) {
+        const ent = r.entity as EntityEntry | undefined;
+        const key = r.entity_id;
+        if (!entityMap.has(key)) {
+          entityMap.set(key, {
+            entity_name: ent?.name || "Inconnu",
+            topic_name: ent?.chapter?.topic?.name || "Autre",
+            chapter_name: ent?.chapter?.name || "—",
+            results: [],
+          });
+        }
+        entityMap.get(key)!.results.push({
+          result: r.result,
+          question: r.question_text,
+          feedback: r.feedback,
+        });
+      }
 
       const res = await fetch("/api/claude/session-debrief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ errors, session_type: "short" }),
+        body: JSON.stringify({
+          mode: "history",
+          period: periodLabel,
+          summaries: Array.from(entityMap.values()),
+          total_correct: filtered.filter((r) => r.result === "correct").length,
+          total_partial: filtered.filter((r) => r.result === "partial").length,
+          total_wrong: filtered.filter((r) => r.result === "wrong").length,
+        }),
       });
       const data = await res.json();
       setAnalysis(data.analysis || data.error);
@@ -239,7 +269,7 @@ export default function HistoryPage() {
                     className="flex items-center justify-center gap-2 w-full h-12 bg-teal/10 border border-teal/20 rounded-xl text-sm font-medium text-teal hover:bg-teal/20 transition-colors disabled:opacity-50"
                   >
                     <Sparkles className="w-4 h-4" />
-                    {analyzing ? "Analyse en cours..." : `Analyser mes erreurs avec Claude (${errorsInFiltered.length})`}
+                    {analyzing ? "Analyse en cours..." : `Analyser mes erreurs — ${periodLabel.toLowerCase()} (${errorsInFiltered.length})`}
                   </button>
                 )}
               </div>
