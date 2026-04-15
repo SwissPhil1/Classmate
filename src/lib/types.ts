@@ -101,6 +101,7 @@ export interface TestResultRecord {
   is_pretest: boolean
   image_url: string | null
   interleaved_session: boolean
+  confidence?: number | null
   entity?: Entity | { name: string; chapter_id: string; chapter?: { name: string; topic?: { name: string } } }
   session?: { session_type: SessionType } | null
   created_at?: string

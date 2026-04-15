@@ -386,6 +386,7 @@ function SessionContent() {
           feedback: feedback || null,
           is_pretest: item.is_pretest,
           interleaved_session: settings?.interleaving_enabled ?? false,
+          confidence: confidence ?? null,
         });
 
         // Update entity with spaced repetition

@@ -133,7 +133,7 @@ export default function HistoryPage() {
         entity_name: string;
         topic_name: string;
         chapter_name: string;
-        results: { result: string; question: string; feedback: string | null }[];
+        results: { result: string; confidence?: number | null }[];
       }>();
 
       for (const r of filtered) {
@@ -149,8 +149,7 @@ export default function HistoryPage() {
         }
         entityMap.get(key)!.results.push({
           result: r.result,
-          question: r.question_text,
-          feedback: r.feedback,
+          confidence: r.confidence,
         });
       }
 

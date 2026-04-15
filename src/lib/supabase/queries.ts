@@ -262,6 +262,7 @@ export async function createTestResult(
     feedback: string | null
     is_pretest: boolean
     interleaved_session: boolean
+    confidence?: number | null
   }
 ): Promise<TestResultRecord> {
   const { data, error } = await supabase

@@ -6,7 +6,7 @@ interface EntitySummary {
   entity_name: string
   topic_name: string
   chapter_name: string
-  results: { result: string; question: string; feedback: string | null }[]
+  results: { result: string; confidence?: number | null }[]
 }
 
 export async function POST(request: NextRequest) {
@@ -53,7 +53,7 @@ FORMAT STRICT À SUIVRE :
 3. Termine par "✅ Sujets maîtrisés : [liste courte]" si il y en a.
 
 RÈGLES :
-- Maximum 3-4 sujets faibles détaillés (les pires d'abord)
+- Maximum 3-4 sujets faibles détaillés (les pires d'abord). Un "partiel" avec confiance 1-2/5 est PLUS faible qu'un partiel avec confiance 4/5.
 - 2-3 points clés par sujet, PAS PLUS
 - Chaque point clé = 1 ligne, concis et spécifique (critère discriminant, diagnostic différentiel clé, signe pathognomonique)
 - PAS de paragraphes, PAS de conseils méthodologiques génériques, PAS de commentaires sur les réponses tapées
@@ -82,7 +82,14 @@ RÈGLES :
             counts.wrong > 0 ? `${counts.wrong}✗` : '',
           ].filter(Boolean).join(' ')
 
-          return `- ${e.entity_name} : ${resultStr}`
+          // Include avg confidence for partial/wrong to show strength of weakness
+          const weakResults = e.results.filter(r => r.result !== 'correct' && r.confidence)
+          const avgConf = weakResults.length > 0
+            ? (weakResults.reduce((sum, r) => sum + (r.confidence || 0), 0) / weakResults.length).toFixed(1)
+            : null
+          const confStr = avgConf ? ` (confiance: ${avgConf}/5)` : ''
+
+          return `- ${e.entity_name} : ${resultStr}${confStr}`
         }).join('\n')
 
         return `### ${topic}\n${entityLines}`

@@ -453,6 +453,32 @@ export function SessionQuestion({
                 </div>
               )}
 
+              {/* Confidence rating */}
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">Confiance dans ma réponse:</p>
+                <div className="flex gap-2" role="group" aria-label="Niveau de confiance">
+                  {[1, 2, 3, 4, 5].map((level) => (
+                    <button
+                      key={level}
+                      onClick={() => setConfidence(level)}
+                      aria-label={`Confiance ${level} sur 5`}
+                      aria-pressed={confidence === level}
+                      className={`flex-1 h-9 rounded-lg text-xs font-medium transition-colors ${
+                        confidence === level
+                          ? "bg-teal text-white"
+                          : "bg-background border border-border text-muted-foreground hover:border-teal/50"
+                      }`}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex justify-between text-[10px] text-muted-foreground px-1">
+                  <span>Deviné</span>
+                  <span>Certain</span>
+                </div>
+              </div>
+
               {/* Self-flag buttons */}
               <div className="space-y-2" role="group" aria-label="Auto-évaluation de votre réponse">
                 {(["correct", "partial", "wrong"] as TestResult[]).map(
