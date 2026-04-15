@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
-import type { Entity, QuestionType, TestResult } from "@/lib/types";
+import type { Entity, QuestionType, TestResult, ImageModality } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Check, AlertTriangle, XCircle, StickyNote } from "lucide-react";
+import { Check, AlertTriangle, XCircle, StickyNote, ImagePlus, Loader2 } from "lucide-react";
 import { ImageGallery } from "@/components/ui/image-gallery";
 import type { EntityImage } from "@/lib/types";
 
@@ -21,6 +21,7 @@ interface SessionQuestionProps {
   isPretest: boolean;
   onAnswer: (result: TestResult, userAnswer: string | null, feedback?: string, confidence?: number) => void;
   onSaveNote?: (entityId: string, note: string) => void;
+  onSaveImage?: (entityId: string, file: File) => Promise<void>;
 }
 
 export function SessionQuestion({
@@ -29,6 +30,7 @@ export function SessionQuestion({
   isPretest,
   onAnswer,
   onSaveNote,
+  onSaveImage,
 }: SessionQuestionProps) {
   const [userAnswer, setUserAnswer] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -43,7 +45,10 @@ export function SessionQuestion({
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState(entity.notes || "");
   const [confidence, setConfidence] = useState<number | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageAdded, setImageAdded] = useState(false);
   const answerRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const isTyped = question.type === "A_typed" || question.type === "C_freeresponse";
   const isOpen = question.type === "B_open";
@@ -125,6 +130,52 @@ export function SessionQuestion({
       onSaveNote(entity.id, noteText);
     }
   };
+
+  const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !onSaveImage) return;
+    if (!file.type.startsWith("image/")) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Image trop volumineuse (max 5 Mo)");
+      return;
+    }
+    setImageUploading(true);
+    try {
+      await onSaveImage(entity.id, file);
+      setImageAdded(true);
+    } catch {
+      // Error handled by parent
+    } finally {
+      setImageUploading(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
+  }, [entity.id, onSaveImage]);
+
+  const ImageUploadButton = () => (
+    onSaveImage ? (
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => imageInputRef.current?.click()}
+          disabled={imageUploading}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+        >
+          {imageUploading ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <ImagePlus className="w-3.5 h-3.5" />
+          )}
+          {imageUploading ? "Upload..." : imageAdded ? "Image ajoutée ✓" : "Ajouter une image"}
+        </button>
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleImageUpload}
+          className="hidden"
+        />
+      </div>
+    ) : null
+  );
 
   const RESULT_CONFIG = {
     correct: {
@@ -316,13 +367,16 @@ export function SessionQuestion({
                   />
                 </div>
               ) : (
-                <button
-                  onClick={() => setNoteOpen(true)}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <StickyNote className="w-3.5 h-3.5" />
-                  {entity.notes ? "Modifier ma note" : "Ajouter une note"}
-                </button>
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => setNoteOpen(true)}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <StickyNote className="w-3.5 h-3.5" />
+                    {entity.notes ? "Modifier ma note" : "Ajouter une note"}
+                  </button>
+                  <ImageUploadButton />
+                </div>
               )}
 
               {/* Confidence rating */}
@@ -387,13 +441,16 @@ export function SessionQuestion({
                   />
                 </div>
               ) : (
-                <button
-                  onClick={() => setNoteOpen(true)}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <StickyNote className="w-3.5 h-3.5" />
-                  {entity.notes ? "Modifier ma note" : "Ajouter une note"}
-                </button>
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => setNoteOpen(true)}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <StickyNote className="w-3.5 h-3.5" />
+                    {entity.notes ? "Modifier ma note" : "Ajouter une note"}
+                  </button>
+                  <ImageUploadButton />
+                </div>
               )}
 
               {/* Self-flag buttons */}

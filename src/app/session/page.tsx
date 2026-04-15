@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, Suspense } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
@@ -66,10 +66,11 @@ function SessionContent() {
   const [direction, setDirection] = useState(1);
   const [questionError, setQuestionError] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
+  const [sessionInitialized, setSessionInitialized] = useState(false);
 
-  // Initialize session
+  // Initialize session — guarded to prevent re-init on tab switch
   useEffect(() => {
-    if (!user) return;
+    if (!user || sessionInitialized) return;
 
     const resumeId = searchParams.get("resume");
     const initSessionType = (searchParams.get("type") || "short") as SessionType;
@@ -117,6 +118,7 @@ function SessionContent() {
             answers_so_far: [],
           });
         }
+        setSessionInitialized(true);
       } catch (err) {
         console.error("Session init error:", err);
         const msg = err instanceof Error ? err.message : String(err);
@@ -128,13 +130,19 @@ function SessionContent() {
     }
 
     init();
-  }, [user]);
+  }, [user, sessionInitialized]);
+
+  // Track which question index is loaded to prevent duplicate fetches
+  const loadedIndexRef = useRef<number>(-1);
 
   // Load current question
   useEffect(() => {
     if (queue.length === 0 || currentIndex >= queue.length || loading) return;
+    // Skip if this index is already loaded (prevents re-fetch on tab switch)
+    if (loadedIndexRef.current === currentIndex && currentQuestion) return;
 
     const item = queue[currentIndex];
+    loadedIndexRef.current = currentIndex;
     loadQuestion(item);
   }, [currentIndex, queue, loading]);
 
@@ -497,6 +505,25 @@ function SessionContent() {
     }
   };
 
+  const handleSaveImage = async (entityId: string, file: File) => {
+    if (!user) return;
+    try {
+      const { uploadEntityImage } = await import("@/lib/supabase/storage");
+      const { createEntityImage } = await import("@/lib/supabase/queries");
+      const storagePath = await uploadEntityImage(supabase, user.id, entityId, file);
+      await createEntityImage(supabase, {
+        entity_id: entityId,
+        user_id: user.id,
+        storage_path: storagePath,
+      });
+      toast.success("Image ajoutée au brief");
+    } catch (err) {
+      console.error("Save image error:", err);
+      toast.error("Erreur lors de l'upload de l'image");
+      throw err;
+    }
+  };
+
   const handleAbandon = async () => {
     if (user && sessionId) {
       await deleteSessionState(supabase, user.id);
@@ -637,6 +664,7 @@ function SessionContent() {
                 isPretest={queue[currentIndex]?.is_pretest ?? false}
                 onAnswer={handleAnswer}
                 onSaveNote={handleSaveNote}
+                onSaveImage={handleSaveImage}
               />
             </motion.div>
           ) : null}
