@@ -1,7 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import type {
   Entity, EntityImage, Topic, Chapter, Source, Brief, Session, SessionState,
-  TestResultRecord, UserSettings, QueueItem, EntityType, SessionType,
+  TestResultRecord, UserSettings, QueueItem, EntityType, SessionType, ExamComponent,
   TopicHealth, HealthStatus,
 } from '@/lib/types'
 import { chapterHealth } from '@/lib/spaced-repetition'
@@ -32,6 +32,28 @@ export async function getTopicWithChapters(supabase: SupabaseClient, topicId: st
   if (topicRes.error) throw topicRes.error
   if (chaptersRes.error) throw chaptersRes.error
   return { topic: topicRes.data as Topic, chapters: chaptersRes.data as Chapter[] }
+}
+
+export async function createTopic(
+  supabase: SupabaseClient,
+  name: string,
+  examComponent: ExamComponent = 'both'
+): Promise<{ topic: Topic; chapter: Chapter }> {
+  const { data: topic, error: topicErr } = await supabase
+    .from('topics')
+    .insert({ name, exam_component: examComponent })
+    .select()
+    .single()
+  if (topicErr) throw topicErr
+
+  const { data: chapter, error: chapterErr } = await supabase
+    .from('chapters')
+    .insert({ topic_id: topic.id, name })
+    .select()
+    .single()
+  if (chapterErr) throw chapterErr
+
+  return { topic: topic as Topic, chapter: chapter as Chapter }
 }
 
 // ─── Sources ─────────────────────────────────────────────

@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
-import { getTopicHealthGrid } from "@/lib/supabase/queries";
+import { getTopicHealthGrid, createTopic } from "@/lib/supabase/queries";
 import type { TopicHealth } from "@/lib/types";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Plus, Check, X } from "lucide-react";
+import { toast } from "sonner";
 import Link from "next/link";
 
 const HEALTH_COLORS = {
@@ -22,6 +23,8 @@ export default function TopicsPage() {
   const supabase = createClient();
   const [topics, setTopics] = useState<TopicHealth[]>([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [newTopicName, setNewTopicName] = useState("");
 
   useEffect(() => {
     if (!userLoading && !user) router.push("/login");
@@ -33,6 +36,20 @@ export default function TopicsPage() {
       .then(setTopics)
       .finally(() => setLoading(false));
   }, [user]);
+
+  const handleCreateTopic = async () => {
+    if (!newTopicName.trim() || !user) return;
+    try {
+      const { topic } = await createTopic(supabase, newTopicName.trim());
+      toast.success(`Thème "${topic.name}" créé`);
+      setCreating(false);
+      setNewTopicName("");
+      router.push(`/topics/${topic.id}`);
+    } catch (err) {
+      console.error("Create topic error:", err);
+      toast.error("Erreur lors de la création du thème");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -95,6 +112,47 @@ export default function TopicsPage() {
                 </Link>
               );
             })}
+
+            {/* Create new topic */}
+            {creating ? (
+              <div className="bg-card border border-teal/30 rounded-xl p-4 space-y-3">
+                <input
+                  autoFocus
+                  value={newTopicName}
+                  onChange={(e) => setNewTopicName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCreateTopic();
+                    if (e.key === "Escape") { setCreating(false); setNewTopicName(""); }
+                  }}
+                  placeholder="Nom du thème (ex: Anatomie, Syndromes...)"
+                  className="w-full h-12 bg-background border border-border rounded-lg px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-teal"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCreateTopic}
+                    disabled={!newTopicName.trim()}
+                    className="flex-1 h-10 flex items-center justify-center gap-2 bg-teal text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                  >
+                    <Check className="w-4 h-4" />
+                    Créer
+                  </button>
+                  <button
+                    onClick={() => { setCreating(false); setNewTopicName(""); }}
+                    className="h-10 px-4 flex items-center justify-center bg-background border border-border rounded-lg text-sm text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setCreating(true)}
+                className="w-full flex items-center justify-center gap-2 h-14 bg-card border border-dashed border-border rounded-xl text-sm font-medium text-muted-foreground hover:text-teal hover:border-teal/50 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Nouveau thème
+              </button>
+            )}
           </div>
         )}
       </main>

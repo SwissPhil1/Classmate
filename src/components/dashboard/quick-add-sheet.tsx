@@ -10,6 +10,7 @@ import {
   getChapters,
   getSources,
   createSource,
+  createTopic,
   createEntity,
   getEntity,
   getEntities,
@@ -58,6 +59,8 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
   const [matches, setMatches] = useState<{ entity_id: string; entity_name: string; relationship: string; reason: string }[]>([]);
   const [checkingMatches, setCheckingMatches] = useState(false);
   const [enriching, setEnriching] = useState(false);
+  const [showNewTopic, setShowNewTopic] = useState(false);
+  const [newTopicName, setNewTopicName] = useState("");
 
   useEffect(() => {
     if (!open || !user) return;
@@ -322,8 +325,16 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
               <div className="space-y-1.5">
                 <label className="text-sm text-muted-foreground">Thème</label>
                 <select
-                  value={topicId}
-                  onChange={(e) => setTopicId(e.target.value)}
+                  value={showNewTopic ? "__new_topic__" : topicId}
+                  onChange={(e) => {
+                    if (e.target.value === "__new_topic__") {
+                      setShowNewTopic(true);
+                    } else {
+                      setShowNewTopic(false);
+                      setNewTopicName("");
+                      setTopicId(e.target.value);
+                    }
+                  }}
                   className="w-full h-12 bg-background border border-border rounded-lg px-3 text-sm text-foreground"
                 >
                   {topics.map((t) => (
@@ -331,7 +342,38 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
                       {t.name}
                     </option>
                   ))}
+                  <option value="__new_topic__">+ Nouveau thème</option>
                 </select>
+                {showNewTopic && (
+                  <Input
+                    autoFocus
+                    value={newTopicName}
+                    onChange={(e) => setNewTopicName(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter" && newTopicName.trim()) {
+                        try {
+                          const { topic, chapter } = await createTopic(supabase, newTopicName.trim());
+                          setTopics((prev) => [...prev, topic].sort((a, b) => a.name.localeCompare(b.name)));
+                          setTopicId(topic.id);
+                          setChapters([chapter]);
+                          setChapterId(chapter.id);
+                          setShowNewTopic(false);
+                          setNewTopicName("");
+                          toast.success(`Thème "${topic.name}" créé`);
+                        } catch {
+                          toast.error("Erreur lors de la création du thème");
+                        }
+                      }
+                      if (e.key === "Escape") {
+                        setShowNewTopic(false);
+                        setNewTopicName("");
+                        if (topics.length > 0) setTopicId(topics[0].id);
+                      }
+                    }}
+                    placeholder="Nom du nouveau thème..."
+                    className="h-10 text-sm"
+                  />
+                )}
               </div>
 
               {/* Parent entity (optional) */}
