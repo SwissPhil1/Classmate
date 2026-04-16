@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities, getEntityImages, createEntityImage, deleteEntityImage, updateEntityImage } from "@/lib/supabase/queries";
-import { uploadEntityImage, getImagePublicUrl, deleteStorageImage } from "@/lib/supabase/storage";
+import { uploadEntityImage, getImageUrl, deleteStorageImage } from "@/lib/supabase/storage";
 import type { Entity, Brief, EntityImage, ImageModality } from "@/lib/types";
 import { BriefContent } from "@/components/brief/brief-content";
 import { ReferenceTextEditor } from "@/components/brief/reference-text-editor";
@@ -54,13 +54,14 @@ export default function BriefPage() {
         ]);
         setBrief(b);
         setChildren(ch);
-        // Attach public URLs to images
-        setImages(
-          imgs.map((img) => ({
+        // Attach signed URLs to images (works with private buckets)
+        const imgsWithUrls = await Promise.all(
+          imgs.map(async (img) => ({
             ...img,
-            url: getImagePublicUrl(supabase, img.storage_path),
+            url: await getImageUrl(supabase, img.storage_path),
           }))
         );
+        setImages(imgsWithUrls);
       } catch (err) {
         console.error("Brief load error:", err);
       } finally {
@@ -142,13 +143,21 @@ export default function BriefPage() {
         modality,
         display_order: images.length,
       });
-      const url = getImagePublicUrl(supabase, storagePath);
+      const url = await getImageUrl(supabase, storagePath);
       setImages((prev) => [...prev, { ...record, url }]);
       setShowImageUpload(false);
       toast.success("Image ajoutée");
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Image upload error:", err);
-      toast.error("Erreur lors de l'upload");
+      const message = err instanceof Error ? err.message : String(err);
+      // Show actual error for debugging storage policy issues
+      if (message.includes("security") || message.includes("policy") || message.includes("Bucket") || message.includes("bucket")) {
+        toast.error(`Upload bloqué: ${message}`);
+      } else if (message.includes("trop volumineuse") || message.includes("Format")) {
+        toast.error(message);
+      } else {
+        toast.error(`Erreur lors de l'upload: ${message}`);
+      }
     } finally {
       setUploading(false);
     }

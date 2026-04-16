@@ -38,8 +38,9 @@ export async function uploadEntityImage(
 }
 
 /**
- * Get a public URL for a storage path.
- * Uses getPublicUrl (bucket must have public access) or createSignedUrl as fallback.
+ * Get a URL for a storage path.
+ * Tries getPublicUrl first (works if bucket is public).
+ * Falls back to signed URL if needed.
  */
 export function getImagePublicUrl(
   supabase: SupabaseClient,
@@ -49,6 +50,24 @@ export function getImagePublicUrl(
     .from(BUCKET)
     .getPublicUrl(storagePath)
   return data.publicUrl
+}
+
+/**
+ * Get a working URL for a storage path — uses signed URL for private buckets.
+ */
+export async function getImageUrl(
+  supabase: SupabaseClient,
+  storagePath: string
+): Promise<string> {
+  // Use signed URL (works regardless of public/private bucket setting)
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(storagePath, 3600)
+  if (error || !data) {
+    // Fallback to public URL
+    return getImagePublicUrl(supabase, storagePath)
+  }
+  return data.signedUrl
 }
 
 /**

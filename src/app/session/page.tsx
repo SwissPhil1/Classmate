@@ -20,7 +20,7 @@ import {
   createTestResult,
   getBrief,
 } from "@/lib/supabase/queries";
-import { getImagePublicUrl } from "@/lib/supabase/storage";
+import { getImageUrl } from "@/lib/supabase/storage";
 import { calculateNextReview } from "@/lib/spaced-repetition";
 import type {
   SessionType,
@@ -218,7 +218,7 @@ function SessionContent() {
       if (imageUrls.length === 0) {
         try {
           const imgs = await getEntityImages(supabase, item.entity_id);
-          imageUrls = imgs.map((img) => getImagePublicUrl(supabase, img.storage_path));
+          imageUrls = await Promise.all(imgs.map((img) => getImageUrl(supabase, img.storage_path)));
         } catch {
           // Images optional — don't block the session
         }
