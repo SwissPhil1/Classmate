@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import type { Entity, QuestionType, TestResult, ImageModality } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Check, AlertTriangle, XCircle, StickyNote, ImagePlus, Loader2 } from "lucide-react";
+import { Check, AlertTriangle, XCircle, StickyNote, ImagePlus, Loader2, Flag } from "lucide-react";
 import { ImageGallery } from "@/components/ui/image-gallery";
 import type { EntityImage } from "@/lib/types";
 
@@ -22,12 +22,14 @@ interface SessionQuestionProps {
   onAnswer: (result: TestResult, userAnswer: string | null, feedback?: string, confidence?: number) => void;
   onSaveNote?: (entityId: string, note: string) => void;
   onSaveImage?: (entityId: string, file: File) => Promise<void>;
+  onReportError?: (entityId: string) => void;
 }
 
 export function SessionQuestion({
   entity,
   question,
   isPretest,
+  onReportError,
   onAnswer,
   onSaveNote,
   onSaveImage,
@@ -47,6 +49,7 @@ export function SessionQuestion({
   const [confidence, setConfidence] = useState<number | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [imageAdded, setImageAdded] = useState(false);
+  const [reported, setReported] = useState(false);
   const answerRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
@@ -376,6 +379,16 @@ export function SessionQuestion({
                     {entity.notes ? "Modifier ma note" : "Ajouter une note"}
                   </button>
                   <ImageUploadButton />
+                  {onReportError && (
+                    <button
+                      onClick={() => { onReportError(entity.id); setReported(true); }}
+                      disabled={reported}
+                      className={`flex items-center gap-1.5 text-xs transition-colors ${reported ? "text-wrong" : "text-muted-foreground hover:text-wrong"}`}
+                    >
+                      <Flag className="w-3.5 h-3.5" />
+                      {reported ? "Signalé ✓" : "Signaler erreur"}
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -450,6 +463,16 @@ export function SessionQuestion({
                     {entity.notes ? "Modifier ma note" : "Ajouter une note"}
                   </button>
                   <ImageUploadButton />
+                  {onReportError && (
+                    <button
+                      onClick={() => { onReportError(entity.id); setReported(true); }}
+                      disabled={reported}
+                      className={`flex items-center gap-1.5 text-xs transition-colors ${reported ? "text-wrong" : "text-muted-foreground hover:text-wrong"}`}
+                    >
+                      <Flag className="w-3.5 h-3.5" />
+                      {reported ? "Signalé ✓" : "Signaler erreur"}
+                    </button>
+                  )}
                 </div>
               )}
 

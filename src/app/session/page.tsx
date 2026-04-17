@@ -278,6 +278,7 @@ function SessionContent() {
               reference_text: entity.reference_text,
               notes: entity.notes,
               has_images: hasImages,
+              image_urls: hasImages ? imageUrls : undefined,
               ...(item.is_synthesis && { is_synthesis: true, children_names: childrenNames, children_references: childrenRefs }),
             }),
           });
@@ -333,6 +334,7 @@ function SessionContent() {
             notes: entity.notes,
             reference_text: entity.reference_text,
             has_images: hasImages,
+            image_urls: hasImages ? imageUrls : undefined,
             ...(item.is_synthesis && { is_synthesis: true, children_names: childrenNames, children_references: childrenRefs }),
           }),
         });
@@ -516,6 +518,16 @@ function SessionContent() {
     }
   };
 
+  const handleReportError = async (entityId: string) => {
+    try {
+      await updateEntity(supabase, entityId, { pretest_question: null } as Partial<Entity>);
+      toast.success("Question signalée — elle sera régénérée à la prochaine session");
+    } catch (err) {
+      console.error("Report error:", err);
+      toast.error("Erreur lors du signalement");
+    }
+  };
+
   const handleSaveImage = async (entityId: string, file: File) => {
     if (!user) return;
     try {
@@ -676,6 +688,7 @@ function SessionContent() {
                 onAnswer={handleAnswer}
                 onSaveNote={handleSaveNote}
                 onSaveImage={handleSaveImage}
+                onReportError={handleReportError}
               />
             </motion.div>
           ) : null}

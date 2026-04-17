@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { callClaude, parseClaudeJSON } from '@/lib/claude'
+import { callClaude, callClaudeWithVision, parseClaudeJSON } from '@/lib/claude'
 import type { ClaudeQuestionResponse } from '@/lib/types'
 import { createClient } from '@/lib/supabase/server'
 
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
-    const { entity_name, entity_type, cycle_count, difficulty_level, chapter, topic, exam_component, notes, reference_text, is_synthesis, children_names, children_references, has_images } = await request.json()
+    const { entity_name, entity_type, cycle_count, difficulty_level, chapter, topic, exam_component, notes, reference_text, is_synthesis, children_names, children_references, has_images, image_urls } = await request.json()
 
     // Synthesis mode: parent entity with children
     if (is_synthesis && children_names?.length > 0) {
@@ -59,14 +59,18 @@ Retourne UNIQUEMENT un JSON valide:
       ? `\n\nCORRECTIONS DU CANDIDAT (priorité sur toute autre source):\n${notes}`
       : ''
 
-    const imageBlock = has_images
-      ? `\n\nIMAGES DISPONIBLES — L'étudiant verra des images radiologiques de cette entité.
-Adapte la question pour exploiter les images:
-- Difficulté 1: "Décrivez les findings radiologiques visibles sur cette image." (Format B)
-- Difficulté 2: "Identifiez la pathologie et justifiez avec les signes d'imagerie." (Format B)
-- Difficulté 3: "DDx à partir de cette image + intégration clinique + prise en charge." (Format B)
-- Si images présentes, Format B est PRÉFÉRÉ (l'étudiant s'auto-évalue après la révélation de la réponse modèle).
-- La réponse modèle doit décrire les signes attendus sur les images.\n`
+    const hasVision = Array.isArray(image_urls) && image_urls.length > 0
+    const imageBlock = (has_images || hasVision)
+      ? `\n\nIMAGES DISPONIBLES — ${hasVision ? "Tu peux VOIR les images ci-jointes. Analyse-les AVANT de formuler ta question." : "L'étudiant verra des images radiologiques de cette entité."}
+Adapte la question en fonction de CE QUE MONTRENT les images:
+- Si l'image montre une ANATOMIE NORMALE avec des structures numérotées → demander d'IDENTIFIER les structures
+- Si l'image montre une PATHOLOGIE → demander le diagnostic, DDx, signes radiologiques
+- Si l'image est un schéma ou protocole → adapter la question en conséquence
+- Difficulté 1: Description des findings ou identification des structures
+- Difficulté 2: Diagnostic + justification par les signes d'imagerie
+- Difficulté 3: DDx + intégration clinique + prise en charge
+- Format B est PRÉFÉRÉ (l'étudiant s'auto-évalue après la révélation de la réponse modèle)
+- La réponse modèle doit correspondre à ce que montre RÉELLEMENT l'image. Ne PAS inventer de pathologie si l'image est normale.\n`
       : ''
 
     const systemPrompt = `Génère une question de re-test froid niveau FMH2 sur: ${entity_name}.
@@ -112,7 +116,9 @@ Chapitre: ${chapter}
 Thème: ${topic}
 Composante d'examen: ${exam_component}`
 
-    const response = await callClaude(systemPrompt, userMessage, 2048)
+    const response = hasVision
+      ? await callClaudeWithVision(systemPrompt, userMessage, image_urls, 2048)
+      : await callClaude(systemPrompt, userMessage, 2048)
     const parsed = parseClaudeJSON<ClaudeQuestionResponse>(response)
 
     if (!parsed.type || !parsed.question || !parsed.model_answer || !Array.isArray(parsed.key_points)) {

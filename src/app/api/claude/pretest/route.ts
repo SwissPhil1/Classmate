@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { callClaude, parseClaudeJSON } from '@/lib/claude'
+import { callClaude, callClaudeWithVision, parseClaudeJSON } from '@/lib/claude'
 import type { ClaudePretestResponse } from '@/lib/types'
 import { createClient } from '@/lib/supabase/server'
 
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
-    const { entity_name, entity_type, chapter, topic, reference_text, notes, is_synthesis, children_names, children_references, has_images } = await request.json()
+    const { entity_name, entity_type, chapter, topic, reference_text, notes, is_synthesis, children_names, children_references, has_images, image_urls } = await request.json()
 
     // Synthesis mode: parent entity pretest
     if (is_synthesis && children_names?.length > 0) {
@@ -55,13 +55,16 @@ Retourne UNIQUEMENT un JSON valide:
       ? `\n\nCORRECTIONS DU CANDIDAT (priorité sur toute autre source):\n${notes}`
       : ''
 
-    const imageInstructions = has_images
+    const hasVision = Array.isArray(image_urls) && image_urls.length > 0
+    const imageInstructions = (has_images || hasVision)
       ? `\n\nIMPORTANT — IMAGES DISPONIBLES:
-L'étudiant verra des images radiologiques de cette entité pendant la question.
-Adapte la question pour exploiter les images:
-- Format OBLIGATOIRE: B (réponse orale/auto-évaluée) — l'étudiant doit décrire ce qu'il voit.
-- Question type: "Observez cette image. Quel diagnostic évoquez-vous ? Décrivez les signes radiologiques qui vous orientent."
-- La réponse modèle doit inclure les signes d'imagerie ATTENDUS sur les images.
+${hasVision ? "Tu peux VOIR les images ci-jointes. Analyse-les AVANT de formuler ta question." : "L'étudiant verra des images radiologiques de cette entité."}
+Adapte la question en fonction de CE QUE MONTRENT les images:
+- Si l'image montre une ANATOMIE NORMALE avec des structures numérotées → demander d'IDENTIFIER les structures (ex: "Identifiez les structures numérotées 1 à 10 sur cette coupe.")
+- Si l'image montre une PATHOLOGIE → demander le diagnostic et les signes radiologiques
+- Si l'image montre un protocole ou une technique → demander les paramètres ou l'indication
+- Format OBLIGATOIRE: B (réponse orale/auto-évaluée)
+- La réponse modèle doit correspondre à ce que montre RÉELLEMENT l'image. Ne PAS inventer de pathologie si l'image est normale.
 - NE PAS demander de décrire la modalité ou la technique — l'image parle d'elle-même.`
       : ''
 
@@ -94,7 +97,9 @@ Type: ${entity_type}
 Chapitre: ${chapter}
 Thème: ${topic}`
 
-    const response = await callClaude(systemPrompt, userMessage, 2048)
+    const response = hasVision
+      ? await callClaudeWithVision(systemPrompt, userMessage, image_urls, 2048)
+      : await callClaude(systemPrompt, userMessage, 2048)
     const parsed = parseClaudeJSON<ClaudePretestResponse>(response)
 
     if (!parsed.type || !parsed.question || !parsed.model_answer || !Array.isArray(parsed.key_points)) {
