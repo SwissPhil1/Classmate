@@ -3,12 +3,19 @@
 import { useState, useRef, useEffect } from "react";
 import DOMPurify from "dompurify";
 import type { Brief, EntityType, QAPair } from "@/lib/types";
-import { ChevronDown, Pencil, Check, Eye, EyeOff } from "lucide-react";
+import { ChevronDown, Pencil, Check, Eye, EyeOff, ThumbsDown, X, Loader2 } from "lucide-react";
 
 interface BriefContentProps {
   brief: Brief;
   entityType: EntityType;
   onContentChange?: (newContent: string) => void;
+  /** Called when the user wants to rewrite the mnemonic section. Should call
+   *  /api/claude/rewrite-mnemonic and return the new full brief content. */
+  onRewriteMnemonic?: (feedback: string) => Promise<string | null>;
+}
+
+function isMnemonicSectionTitle(title: string): boolean {
+  return /mn[ée]moni[qQ]ue/i.test(title);
 }
 
 interface Section {
@@ -65,15 +72,21 @@ function CollapsibleSection({
   section,
   onEdit,
   activeRecallMode = false,
+  onRewriteMnemonic,
 }: {
   section: Section;
   onEdit?: (newContent: string) => void;
   activeRecallMode?: boolean;
+  onRewriteMnemonic?: (feedback: string) => Promise<string | null>;
 }) {
   const [expanded, setExpanded] = useState(section.alwaysOpen ?? false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(section.content);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [rewriteOpen, setRewriteOpen] = useState(false);
+  const [rewriteFeedback, setRewriteFeedback] = useState("");
+  const [rewriting, setRewriting] = useState(false);
+  const [rewriteError, setRewriteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (editing && textareaRef.current) {
@@ -98,6 +111,37 @@ function CollapsibleSection({
     setEditing(true);
   };
 
+  const handleOpenRewrite = (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.stopPropagation();
+    setExpanded(true);
+    setRewriteFeedback("");
+    setRewriteError(null);
+    setRewriteOpen(true);
+  };
+
+  const handleSubmitRewrite = async () => {
+    if (!onRewriteMnemonic) return;
+    const trimmed = rewriteFeedback.trim();
+    if (!trimmed) {
+      setRewriteError("Explique brièvement ce qui ne va pas.");
+      return;
+    }
+    setRewriting(true);
+    setRewriteError(null);
+    try {
+      const ok = await onRewriteMnemonic(trimmed);
+      if (ok === null) {
+        setRewriteError("La réécriture a échoué. Réessaye.");
+        return;
+      }
+      setRewriteOpen(false);
+    } catch {
+      setRewriteError("La réécriture a échoué. Réessaye.");
+    } finally {
+      setRewriting(false);
+    }
+  };
+
   return (
     <div className="border-b border-border last:border-0">
       <button
@@ -114,6 +158,19 @@ function CollapsibleSection({
           {section.title}
         </h3>
         <div className="flex items-center gap-1">
+          {onRewriteMnemonic && (expanded || section.alwaysOpen) && !editing && !rewriteOpen && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={handleOpenRewrite}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleOpenRewrite(e); }}
+              aria-label={`Signaler un problème avec la mnémonique et demander une réécriture`}
+              title="Mnémonique peu utile — proposer une réécriture"
+              className="p-2.5 rounded-lg hover:bg-background transition-colors"
+            >
+              <ThumbsDown className="w-4 h-4 text-muted-foreground" />
+            </span>
+          )}
           {onEdit && (expanded || section.alwaysOpen) && !editing && (
             <span
               role="button"
@@ -134,7 +191,60 @@ function CollapsibleSection({
         </div>
       </button>
 
-      {(expanded || section.alwaysOpen) && (
+      {(expanded || section.alwaysOpen) && rewriteOpen && (
+        <div className="px-4 pb-4">
+          <div className="bg-background border border-border rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-foreground">Réécrire la mnémonique</p>
+              <button
+                onClick={() => setRewriteOpen(false)}
+                className="p-1 rounded hover:bg-card transition-colors"
+                aria-label="Fermer"
+                disabled={rewriting}
+              >
+                <X className="w-3.5 h-3.5 text-muted-foreground" />
+              </button>
+            </div>
+            <textarea
+              value={rewriteFeedback}
+              onChange={(e) => setRewriteFeedback(e.target.value)}
+              placeholder="Qu'est-ce qui cloche dans cette mnémonique ? (ex: trop générique, je préfère TORCH, à refaire sans VINDICATE...)"
+              className="w-full bg-card border border-border rounded-lg p-2 text-sm text-foreground resize-none focus:outline-none focus:border-teal"
+              rows={3}
+              disabled={rewriting}
+              autoFocus
+            />
+            {rewriteError && (
+              <p className="text-xs text-wrong">{rewriteError}</p>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setRewriteOpen(false)}
+                disabled={rewriting}
+                className="text-xs text-muted-foreground hover:text-foreground px-2 py-1"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleSubmitRewrite}
+                disabled={rewriting}
+                className="flex items-center gap-1.5 text-xs bg-teal text-white px-3 py-1.5 rounded-lg hover:bg-teal-light transition-colors disabled:opacity-50"
+              >
+                {rewriting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Réécriture...
+                  </>
+                ) : (
+                  "Réécrire"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(expanded || section.alwaysOpen) && !rewriteOpen && (
         <div className="px-4 pb-4">
           {editing ? (
             <div className="space-y-2">
@@ -362,10 +472,16 @@ function ActiveRecallContent({ html }: { html: string }) {
   );
 }
 
-export function BriefContent({ brief, entityType, onContentChange }: BriefContentProps) {
+export function BriefContent({ brief, entityType, onContentChange, onRewriteMnemonic }: BriefContentProps) {
   const [sections, setSections] = useState(() => parseSections(brief.content));
   const [activeRecallMode, setActiveRecallMode] = useState(false);
   const qaPairs = (brief.qa_pairs || []) as QAPair[];
+
+  // Re-parse when the underlying brief content changes (e.g. after rewriting
+  // the mnemonic section through the API).
+  useEffect(() => {
+    setSections(parseSections(brief.content));
+  }, [brief.content]);
 
   const handleSectionEdit = (index: number, newContent: string) => {
     const updated = [...sections];
@@ -401,6 +517,11 @@ export function BriefContent({ brief, entityType, onContentChange }: BriefConten
             section={section}
             onEdit={!activeRecallMode && onContentChange ? (content) => handleSectionEdit(i, content) : undefined}
             activeRecallMode={activeRecallMode}
+            onRewriteMnemonic={
+              !activeRecallMode && onRewriteMnemonic && isMnemonicSectionTitle(section.title)
+                ? onRewriteMnemonic
+                : undefined
+            }
           />
         ))}
         {qaPairs.length > 0 && <QASection qaPairs={qaPairs} />}

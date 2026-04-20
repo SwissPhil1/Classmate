@@ -12,12 +12,14 @@ import {
   getTopicHealthGrid,
   getSessionState,
   getEntities,
+  getVitalDueToday,
   updateEntity,
 } from "@/lib/supabase/queries";
 import { daysUntil, weekNumber, checkMasteryDecay } from "@/lib/spaced-repetition";
 import type { TopicHealth, SessionType, Entity } from "@/lib/types";
 import { ExamCountdown } from "@/components/dashboard/exam-countdown";
 import { TodayQueue } from "@/components/dashboard/today-queue";
+import { DailyDrill } from "@/components/dashboard/daily-drill";
 import { TopicHealthGrid } from "@/components/dashboard/topic-health-grid";
 import { QuickAddButton } from "@/components/dashboard/quick-add-button";
 import { QuickAddSheet } from "@/components/dashboard/quick-add-sheet";
@@ -36,6 +38,7 @@ export default function DashboardPage() {
   const [pretestCount, setPretestCount] = useState(0);
   const [weakCount, setWeakCount] = useState(0);
   const [topicHealth, setTopicHealth] = useState<TopicHealth[]>([]);
+  const [vitalDue, setVitalDue] = useState<Entity[]>([]);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [resumeSession, setResumeSession] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,17 +70,23 @@ export default function DashboardPage() {
           );
         }
 
-        const [due, pretest, weak, health, existingState] = await Promise.all([
+        const [due, pretest, weak, health, existingState, vital] = await Promise.all([
           getDueCount(supabase, user!.id),
           getPretestCount(supabase, user!.id),
           getWeakCount(supabase, user!.id),
           getTopicHealthGrid(supabase, user!.id),
           getSessionState(supabase, user!.id),
+          getVitalDueToday(supabase, user!.id).catch((err) => {
+            // Gracefully handle pre-migration state (priority column missing)
+            console.warn("Vital due query unavailable:", err);
+            return [] as Entity[];
+          }),
         ]);
         setDueCount(due);
         setPretestCount(pretest);
         setWeakCount(weak);
         setTopicHealth(health);
+        setVitalDue(vital);
         if (existingState) {
           setResumeSession(existingState.session_id);
         }
@@ -171,6 +180,21 @@ export default function DashboardPage() {
           oralDays={oralDays}
           week={week}
         />
+
+        {/* Daily drill — vital/mnemonic items with compressed intervals */}
+        {vitalDue.length > 0 && (
+          <DailyDrill
+            items={vitalDue}
+            onCompleted={() => {
+              if (user) {
+                getVitalDueToday(supabase, user.id)
+                  .then(setVitalDue)
+                  .catch((err) => console.error("Vital refresh error:", err));
+                getDueCount(supabase, user.id).then(setDueCount);
+              }
+            }}
+          />
+        )}
 
         {/* Today's Queue */}
         <TodayQueue

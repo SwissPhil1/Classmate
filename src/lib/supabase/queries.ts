@@ -406,6 +406,42 @@ export async function getTopicHealthGrid(
   })
 }
 
+// ─── Priority / Vital items ──────────────────────────────
+export async function getVitalDueToday(
+  supabase: SupabaseClient,
+  userId: string,
+  limit: number = 20
+): Promise<Entity[]> {
+  const today = new Date().toISOString().split('T')[0]
+  const { data, error } = await supabase
+    .from('entities')
+    .select('*, chapter:chapters(*, topic:topics(*)), brief:briefs(content)')
+    .eq('user_id', userId)
+    .eq('priority', 'vital')
+    .eq('pre_test_done', true)
+    .eq('pre_test_queued', false)
+    .in('status', ['active', 'new', 'solid'])
+    .not('next_test_date', 'is', null)
+    .lte('next_test_date', today)
+    .order('next_test_date', { ascending: true })
+    .limit(limit)
+  if (error) throw error
+  return (data ?? []) as Entity[]
+}
+
+export async function setEntityPriority(
+  supabase: SupabaseClient,
+  entityId: string,
+  priority: 'normal' | 'vital',
+  source: 'auto' | 'manual'
+): Promise<void> {
+  const { error } = await supabase
+    .from('entities')
+    .update({ priority, priority_source: source })
+    .eq('id', entityId)
+  if (error) throw error
+}
+
 // ─── Weak Items Count ───────────────────────────────────
 export async function getWeakCount(supabase: SupabaseClient, userId: string): Promise<number> {
   const { count, error } = await supabase

@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
-import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities, getEntityImages, createEntityImage, deleteEntityImage, updateEntityImage } from "@/lib/supabase/queries";
+import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities, getEntityImages, createEntityImage, deleteEntityImage, updateEntityImage, setEntityPriority } from "@/lib/supabase/queries";
 import { uploadEntityImage, getImageUrl, deleteStorageImage } from "@/lib/supabase/storage";
 import type { Entity, Brief, EntityImage, ImageModality } from "@/lib/types";
 import { BriefContent } from "@/components/brief/brief-content";
 import { ReferenceTextEditor } from "@/components/brief/reference-text-editor";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { ImageGallery } from "@/components/ui/image-gallery";
-import { ArrowLeft, ExternalLink, ImagePlus, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowLeft, ExternalLink, ImagePlus, ChevronDown, ChevronRight, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
@@ -109,11 +109,46 @@ export default function BriefPage() {
           difficulty_level: entity.difficulty_level,
         });
         setBrief(saved);
+
+        // Auto-tag from Claude meta — only overwrite if user hasn't set a manual priority
+        const meta = data.meta as { has_mnemonic?: boolean; mnemonic_name?: string | null; is_critical?: boolean } | undefined;
+        if (meta) {
+          const entityPatch: Partial<Entity> = {};
+          if (typeof meta.has_mnemonic === "boolean" && meta.has_mnemonic !== entity.has_mnemonic) {
+            entityPatch.has_mnemonic = meta.has_mnemonic;
+          }
+          if (meta.mnemonic_name !== undefined && meta.mnemonic_name !== entity.mnemonic_name) {
+            entityPatch.mnemonic_name = meta.mnemonic_name ?? null;
+          }
+          const shouldBeVital = meta.has_mnemonic === true || meta.is_critical === true;
+          const canAutoSet = entity.priority_source !== "manual";
+          if (canAutoSet && shouldBeVital && entity.priority !== "vital") {
+            entityPatch.priority = "vital";
+            entityPatch.priority_source = "auto";
+          }
+          if (Object.keys(entityPatch).length > 0) {
+            await updateEntity(supabase, entity.id, entityPatch);
+            setEntity({ ...entity, ...entityPatch });
+          }
+        }
       }
     } catch (err) {
       console.error("Brief generation error:", err);
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleTogglePriority = async () => {
+    if (!entity) return;
+    const next = entity.priority === "vital" ? "normal" : "vital";
+    try {
+      await setEntityPriority(supabase, entity.id, next, "manual");
+      setEntity({ ...entity, priority: next, priority_source: "manual" });
+      toast.success(next === "vital" ? "Marqué comme vital" : "Priorité normale");
+    } catch (err) {
+      console.error("Priority toggle error:", err);
+      toast.error("Impossible de mettre à jour la priorité");
     }
   };
 
@@ -241,6 +276,20 @@ export default function BriefPage() {
               )}
             </div>
           </div>
+          <button
+            onClick={handleTogglePriority}
+            aria-pressed={entity.priority === "vital"}
+            aria-label={entity.priority === "vital" ? "Retirer la priorité vitale" : "Marquer comme vital"}
+            title={entity.priority === "vital" ? "Vital (priorité élevée)" : "Marquer comme vital"}
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors flex-shrink-0 ${
+              entity.priority === "vital"
+                ? "bg-amber/15 text-amber border border-amber/30"
+                : "bg-card text-muted-foreground border border-border hover:border-amber/40 hover:text-amber"
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            Vital
+          </button>
         </div>
       </header>
 
@@ -317,6 +366,27 @@ export default function BriefPage() {
                   setBrief({ ...brief, content: newContent });
                 } catch (err) {
                   console.error("Brief update error:", err);
+                }
+              }}
+              onRewriteMnemonic={async (feedback) => {
+                try {
+                  const res = await fetch("/api/claude/rewrite-mnemonic", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ entity_id: entityId, user_feedback: feedback }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok || !data.content) {
+                    toast.error(data.error || "Réécriture impossible");
+                    return null;
+                  }
+                  setBrief({ ...brief, content: data.content });
+                  toast.success("Mnémonique réécrite");
+                  return data.content as string;
+                } catch (err) {
+                  console.error("Rewrite mnemonic error:", err);
+                  toast.error("Réécriture indisponible");
+                  return null;
                 }
               }}
             />

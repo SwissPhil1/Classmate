@@ -3,6 +3,52 @@ import { callClaude, parseClaudeJSON, queueBriefGeneration } from '@/lib/claude'
 import type { QAPair } from '@/lib/types'
 import { createClient } from '@/lib/supabase/server'
 
+interface BriefMeta {
+  has_mnemonic: boolean
+  mnemonic_name: string | null
+  is_critical: boolean
+}
+
+interface ParsedBrief {
+  content: string
+  qa_pairs: QAPair[]
+  meta: BriefMeta
+}
+
+function parseBriefResponse(response: string): ParsedBrief {
+  // Strip meta first so it doesn't contaminate content
+  const metaMatch = response.match(/---META_JSON---\s*([\s\S]*?)\s*---END_META_JSON---/)
+  let working = response
+  let meta: BriefMeta = { has_mnemonic: false, mnemonic_name: null, is_critical: false }
+  if (metaMatch) {
+    try {
+      const raw = parseClaudeJSON<Partial<BriefMeta> & { mnemonic_name?: string | null }>(metaMatch[1])
+      meta = {
+        has_mnemonic: raw.has_mnemonic === true,
+        mnemonic_name: typeof raw.mnemonic_name === 'string' && raw.mnemonic_name.trim().length > 0 ? raw.mnemonic_name.trim() : null,
+        is_critical: raw.is_critical === true,
+      }
+    } catch {
+      // Keep defaults if meta parsing fails — don't fail the whole brief
+    }
+    working = working.substring(0, working.indexOf('---META_JSON---')).trim()
+  }
+
+  const qaMatch = working.match(/---QA_JSON---\s*([\s\S]*?)\s*---END_QA_JSON---/)
+  let qa_pairs: QAPair[] = []
+  let content = working
+  if (qaMatch) {
+    content = working.substring(0, working.indexOf('---QA_JSON---')).trim()
+    try {
+      qa_pairs = parseClaudeJSON<QAPair[]>(qaMatch[1])
+    } catch {
+      qa_pairs = []
+    }
+  }
+
+  return { content, qa_pairs, meta }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
@@ -60,17 +106,19 @@ APRÈS le contenu, ajoute:
 [{"question": "...", "model_answer": "...", "key_points": ["..."]}, ...]
 ---END_QA_JSON---
 
-Les 3 Q&A doivent être des questions de SYNTHÈSE/COMPARAISON entre les sous-types, pas sur un seul sous-type.`
+Les 3 Q&A doivent être des questions de SYNTHÈSE/COMPARAISON entre les sous-types, pas sur un seul sous-type.
+
+APRÈS les Q&A, ajoute encore EXACTEMENT ce bloc:
+---META_JSON---
+{"has_mnemonic": true|false, "mnemonic_name": "NOM ou null", "is_critical": true|false}
+---END_META_JSON---
+
+has_mnemonic: true si tu as inclus une mnémonique SPÉCIFIQUE publiée (ex: MEGA, TORCH, FEGNOMASHIC, VITAMIN-C&D). NE PAS compter VINDICATE (cadre générique) comme true.
+mnemonic_name: nom court en MAJUSCULES (ex: "MEGA") ou null.
+is_critical: true si le groupe contient au moins un diagnostic "can't miss" en radiologie (urgences STAT, asymétries diagnostiques à ne pas manquer).`
 
         const response = await callClaude(synthPrompt, `Brief de synthèse: ${entity_name}`, 6144)
-        const qaMatch = response.match(/---QA_JSON---\s*([\s\S]*?)\s*---END_QA_JSON---/)
-        let qa_pairs: QAPair[] = []
-        let content = response
-        if (qaMatch) {
-          content = response.substring(0, response.indexOf('---QA_JSON---')).trim()
-          qa_pairs = parseClaudeJSON<QAPair[]>(qaMatch[1])
-        }
-        return { content, qa_pairs }
+        return parseBriefResponse(response)
       })
       return NextResponse.json(result)
     }
@@ -220,23 +268,21 @@ APRÈS le contenu markdown, ajoute une section séparée avec EXACTEMENT ce form
 [{"question": "...", "model_answer": "...", "key_points": ["..."]}, ...]
 ---END_QA_JSON---
 
-Les 3 paires Q&A doivent être de style examen FMH2, en français. Les réponses modèles doivent être basées UNIQUEMENT sur les faits du brief ci-dessus — ne pas ajouter de faits supplémentaires.`
+Les 3 paires Q&A doivent être de style examen FMH2, en français. Les réponses modèles doivent être basées UNIQUEMENT sur les faits du brief ci-dessus — ne pas ajouter de faits supplémentaires.
+
+APRÈS les Q&A, ajoute encore EXACTEMENT ce bloc:
+---META_JSON---
+{"has_mnemonic": true|false, "mnemonic_name": "NOM ou null", "is_critical": true|false}
+---END_META_JSON---
+
+has_mnemonic: true si tu as inclus une mnémonique SPÉCIFIQUE publiée pour cette entité (ex: MEGA pour fosse postérieure pédiatrique, TORCH pour infections congénitales, FEGNOMASHIC pour lésions lytiques, VITAMIN-C&D pour DDx rachis). NE PAS compter VINDICATE (cadre générique d'organisation, pas une mnémonique spécifique).
+mnemonic_name: nom court en MAJUSCULES (ex: "MEGA") ou null si has_mnemonic est false.
+is_critical: true si cette entité est un diagnostic "can't miss" / STAT en radiologie (dissection aortique, embolie pulmonaire, pneumothorax sous tension, AVC hémorragique, urgences pédiatriques, ischémie mésentérique, abcès, etc.). false sinon.`
 
       const userMessage = `Génère le brief complet pour: ${entity_name} (${entity_type})`
 
       const response = await callClaude(systemPrompt, userMessage, 6144)
-
-      // Split content and QA pairs
-      const qaMatch = response.match(/---QA_JSON---\s*([\s\S]*?)\s*---END_QA_JSON---/)
-      let qa_pairs: QAPair[] = []
-      let content = response
-
-      if (qaMatch) {
-        content = response.substring(0, response.indexOf('---QA_JSON---')).trim()
-        qa_pairs = parseClaudeJSON<QAPair[]>(qaMatch[1])
-      }
-
-      return { content, qa_pairs }
+      return parseBriefResponse(response)
     })
 
     return NextResponse.json(result)

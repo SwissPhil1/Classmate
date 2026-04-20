@@ -8,6 +8,8 @@ export type SessionType = 'short' | 'weekend' | 'topic_study' | 'weekly_review' 
 export type ThemeMode = 'dark' | 'light'
 export type DifficultyLevel = 1 | 2 | 3
 export type ImageModality = 'CT' | 'IRM' | 'RX' | 'US' | 'autre'
+export type Priority = 'normal' | 'vital'
+export type PrioritySource = 'auto' | 'manual'
 
 // ─── Database Models ─────────────────────────────────────
 export interface Topic {
@@ -47,6 +49,10 @@ export interface Entity {
   pre_test_done: boolean
   pre_test_queued: boolean
   difficulty_level: DifficultyLevel
+  priority: Priority
+  priority_source: PrioritySource | null
+  has_mnemonic: boolean
+  mnemonic_name: string | null
   image_url: string | null
   notes: string | null
   reference_text: string | null
