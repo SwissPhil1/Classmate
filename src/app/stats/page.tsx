@@ -1,0 +1,319 @@
+"use client";
+
+import { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { useUser } from "@/hooks/use-user";
+import { getEntities, getTestResults } from "@/lib/supabase/queries";
+import type { Entity, TestResultRecord } from "@/lib/types";
+import {
+  aggregateStatusCounts,
+  aggregateGlobalAccuracy,
+  aggregateTopicAccuracy,
+  rankWeakEntities,
+  recentlyTestedEntities,
+  formatRelativeDate,
+} from "@/lib/stats";
+import { ArrowLeft, Check, AlertTriangle, XCircle, TrendingUp, TrendingDown, BookOpen } from "lucide-react";
+
+const RESULT_ICON = {
+  correct: { Icon: Check, color: "text-correct" },
+  partial: { Icon: AlertTriangle, color: "text-partial" },
+  wrong: { Icon: XCircle, color: "text-wrong" },
+} as const;
+
+export default function StatsPage() {
+  const router = useRouter();
+  const { user, loading: userLoading } = useUser();
+  const supabase = createClient();
+
+  const [entities, setEntities] = useState<Entity[]>([]);
+  const [results, setResults] = useState<TestResultRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!userLoading && !user) router.push("/login");
+  }, [userLoading, user, router]);
+
+  useEffect(() => {
+    if (!user) return;
+    setLoading(true);
+    Promise.all([getEntities(supabase, user.id), getTestResults(supabase, {})])
+      .then(([e, r]) => {
+        setEntities(e);
+        setResults(r);
+      })
+      .catch((err) => console.error("Stats load error:", err))
+      .finally(() => setLoading(false));
+  }, [user]);
+
+  const statusCounts = useMemo(() => aggregateStatusCounts(entities), [entities]);
+  const accuracy = useMemo(() => aggregateGlobalAccuracy(results), [results]);
+  const topicAccuracy = useMemo(() => aggregateTopicAccuracy(results, 5), [results]);
+  const weakRows = useMemo(() => rankWeakEntities(entities, results, 10), [entities, results]);
+  const recentRows = useMemo(() => recentlyTestedEntities(entities, results, 15, 7), [entities, results]);
+
+  const topTopics = topicAccuracy.slice(0, 5);
+  const bottomTopics = [...topicAccuracy].reverse().slice(0, 5);
+
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-sm border-b border-border">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="p-2 rounded-lg hover:bg-card transition-colors"
+            aria-label="Retour"
+          >
+            <ArrowLeft className="w-5 h-5 text-muted-foreground" />
+          </button>
+          <h1 className="text-lg font-bold text-foreground">Statistiques</h1>
+        </div>
+      </header>
+
+      <main className="max-w-2xl mx-auto px-4 py-6 space-y-8">
+        {loading || userLoading || !user ? (
+          <div className="animate-pulse text-muted-foreground text-center py-12">
+            Chargement...
+          </div>
+        ) : (
+          <>
+            {/* Section 1 — Vue d'ensemble */}
+            <section className="space-y-3">
+              <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Vue d&apos;ensemble
+              </h2>
+              <div className="grid grid-cols-4 gap-2">
+                <StatusCard label="Nouveau" count={statusCounts.new} tone="muted" />
+                <StatusCard label="Actif" count={statusCounts.active} tone="chart" />
+                <StatusCard label="Solide" count={statusCounts.solid} tone="correct" />
+                <StatusCard label="Archivé" count={statusCounts.archived} tone="archived" />
+              </div>
+
+              <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+                <div className="flex items-baseline justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                      Précision globale
+                    </p>
+                    <p className="text-2xl font-bold text-foreground">
+                      {accuracy.total === 0 ? "—" : `${accuracy.pctCorrect}%`}
+                    </p>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {accuracy.total} test{accuracy.total > 1 ? "s" : ""}
+                  </p>
+                </div>
+                {accuracy.total > 0 && (
+                  <div className="flex h-2 rounded-full overflow-hidden bg-border">
+                    <div
+                      className="bg-correct"
+                      style={{ width: `${(accuracy.correct / accuracy.total) * 100}%` }}
+                    />
+                    <div
+                      className="bg-partial"
+                      style={{ width: `${(accuracy.partial / accuracy.total) * 100}%` }}
+                    />
+                    <div
+                      className="bg-wrong"
+                      style={{ width: `${(accuracy.wrong / accuracy.total) * 100}%` }}
+                    />
+                  </div>
+                )}
+                <div className="flex gap-4 text-xs">
+                  <span className="text-correct">✓ {accuracy.correct}</span>
+                  <span className="text-partial">~ {accuracy.partial}</span>
+                  <span className="text-wrong">✗ {accuracy.wrong}</span>
+                </div>
+              </div>
+            </section>
+
+            {/* Section 2 — Forts / faibles par thème */}
+            <section className="space-y-3">
+              <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Points forts / faibles par thème
+              </h2>
+              {topicAccuracy.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Aucun thème avec ≥ 5 tests pour l&apos;instant.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <TopicList
+                    title="Points forts"
+                    icon={<TrendingUp className="w-3.5 h-3.5 text-correct" />}
+                    topics={topTopics}
+                    barClass="bg-correct"
+                    accentBorder="border-correct/20"
+                  />
+                  <TopicList
+                    title="À renforcer"
+                    icon={<TrendingDown className="w-3.5 h-3.5 text-wrong" />}
+                    topics={bottomTopics}
+                    barClass="bg-wrong"
+                    accentBorder="border-wrong/20"
+                  />
+                </div>
+              )}
+            </section>
+
+            {/* Section 3 — À travailler */}
+            <section className="space-y-3">
+              <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                À travailler en priorité
+              </h2>
+              {weakRows.length === 0 ? (
+                <div className="bg-card border border-border rounded-xl p-6 text-center text-sm text-muted-foreground">
+                  Tout est solide. Rien à réviser en urgence.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {weakRows.map((row) => (
+                    <Link
+                      key={row.entity.id}
+                      href={`/brief/${row.entity.id}`}
+                      className="flex items-center gap-3 bg-card border border-border rounded-xl px-4 py-3 hover:border-teal/40 transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-foreground truncate">{row.entity.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {row.entity.chapter?.name ?? "—"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {row.recentTotal > 0 ? (
+                          <span className="text-[10px] bg-wrong/10 text-wrong px-1.5 py-0.5 rounded">
+                            {row.recentCorrect}/{row.recentTotal}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] bg-amber/10 text-amber px-1.5 py-0.5 rounded">
+                            jamais
+                          </span>
+                        )}
+                        <span className="text-[10px] text-muted-foreground">
+                          {formatRelativeDate(row.lastTested)}
+                        </span>
+                      </div>
+                      <BookOpen className="w-4 h-4 text-teal flex-shrink-0" />
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Section 4 — Travaillé récemment */}
+            <section className="space-y-3">
+              <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Travaillé récemment (7 derniers jours)
+              </h2>
+              {recentRows.length === 0 ? (
+                <div className="bg-card border border-border rounded-xl p-6 text-center text-sm text-muted-foreground">
+                  Aucune entité testée cette semaine.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {recentRows.map((row) => {
+                    const { Icon, color } = RESULT_ICON[row.lastResult];
+                    return (
+                      <Link
+                        key={row.entity.id}
+                        href={`/brief/${row.entity.id}`}
+                        className="flex items-center gap-3 bg-card border border-border rounded-xl px-4 py-3 hover:border-teal/40 transition-colors"
+                      >
+                        <Icon className={`w-4 h-4 flex-shrink-0 ${color}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-foreground truncate">{row.entity.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {row.entity.chapter?.name ?? "—"}
+                          </p>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                          {formatRelativeDate(row.lastTested)}
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function StatusCard({
+  label,
+  count,
+  tone,
+}: {
+  label: string;
+  count: number;
+  tone: "muted" | "chart" | "correct" | "archived";
+}) {
+  const toneClass =
+    tone === "correct"
+      ? "text-correct"
+      : tone === "chart"
+        ? "text-chart-1"
+        : tone === "archived"
+          ? "text-archived"
+          : "text-muted-foreground";
+  return (
+    <div className="bg-card border border-border rounded-xl px-3 py-3 text-center">
+      <p className={`text-2xl font-bold ${toneClass}`}>{count}</p>
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function TopicList({
+  title,
+  icon,
+  topics,
+  barClass,
+  accentBorder,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  topics: { topicName: string; correct: number; total: number; pct: number }[];
+  barClass: string;
+  accentBorder: string;
+}) {
+  return (
+    <Link
+      href="/topics"
+      className={`block bg-card border ${accentBorder} rounded-xl p-4 space-y-3 hover:border-teal/40 transition-colors`}
+    >
+      <div className="flex items-center gap-1.5">
+        {icon}
+        <p className="text-xs font-medium text-foreground uppercase tracking-wider">
+          {title}
+        </p>
+      </div>
+      {topics.length === 0 ? (
+        <p className="text-xs text-muted-foreground">—</p>
+      ) : (
+        <ul className="space-y-2">
+          {topics.map((t) => (
+            <li key={t.topicName} className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-foreground truncate">{t.topicName}</span>
+                <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                  {t.pct}% · {t.total}
+                </span>
+              </div>
+              <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                <div className={`h-full ${barClass}`} style={{ width: `${t.pct}%` }} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Link>
+  );
+}
