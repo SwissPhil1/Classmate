@@ -130,9 +130,10 @@ export default function AuditPage() {
         .join("\n- ");
       const feedbackText = auditFeedback ? `- ${auditFeedback}` : "";
 
-      const briefRes = await supabase.from("briefs").select("content").eq("entity_id", entity.id).single();
-      const existingContent = briefRes.data?.content ?? null;
-
+      // NOTE: deliberately NOT passing existing_content here. The brief we'd
+      // pass in is already the broken one we're trying to fix (often truncated
+      // mid-sentence). Claude would treat the truncation as an intentional
+      // manual edit and reproduce it. Regenerate fresh from reference_text.
       const res = await fetch("/api/claude/brief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -143,7 +144,6 @@ export default function AuditPage() {
           topic: entity.chapter?.topic?.name,
           reference_text: entity.reference_text,
           notes: entity.notes,
-          existing_content: existingContent || undefined,
           audit_feedback: feedbackText,
         }),
       });
