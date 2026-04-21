@@ -163,6 +163,19 @@ export interface AnswerRecord {
   confidence?: number
 }
 
+export interface BriefAuditItem {
+  entity_id: string
+  status: 'ok' | 'needs_fix'
+  gaps: string[]
+  suggested_grouping: string | null
+  ignored: boolean
+}
+
+export interface BriefAuditReport {
+  generated_at: string
+  items: BriefAuditItem[]
+}
+
 export interface UserSettings {
   user_id: string
   exam_date_written: string
@@ -172,6 +185,7 @@ export interface UserSettings {
   interleaving_suggested: boolean
   theme: ThemeMode
   week_start_date: string | null
+  last_audit: BriefAuditReport | null
 }
 
 // ─── API Response Types ──────────────────────────────────

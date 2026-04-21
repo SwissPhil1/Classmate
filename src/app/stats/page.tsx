@@ -15,7 +15,7 @@ import {
   recentlyTestedEntities,
   formatRelativeDate,
 } from "@/lib/stats";
-import { ArrowLeft, Check, AlertTriangle, XCircle, TrendingUp, TrendingDown, BookOpen, Zap, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, Check, AlertTriangle, XCircle, TrendingUp, TrendingDown, BookOpen, Zap, Loader2, Sparkles, FileSearch, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
 const RESULT_ICON = {
@@ -167,6 +167,24 @@ export default function StatsPage() {
                 </p>
               )}
             </section>
+
+            {/* Audit briefs entry point */}
+            <Link
+              href="/stats/audit"
+              className="flex items-center gap-3 bg-card border border-teal/30 rounded-xl p-4 hover:border-teal/50 transition-colors"
+            >
+              <FileSearch className="w-5 h-5 text-teal flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-foreground">
+                  Auditer mes briefs
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Claude scanne chaque brief et flag les manques (DDx incomplet,
+                  perle oubliée, regroupement thématique). Tu corriges à la carte.
+                </p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            </Link>
 
             {/* Section 1 — Vue d'ensemble */}
             <section className="space-y-3">
