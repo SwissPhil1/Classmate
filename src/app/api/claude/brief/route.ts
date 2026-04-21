@@ -118,7 +118,7 @@ has_mnemonic: true si tu as inclus une mnémonique SPÉCIFIQUE publiée (ex: MEG
 mnemonic_name: nom court en MAJUSCULES (ex: "MEGA") ou null.
 is_critical: true si le groupe contient au moins un diagnostic "can't miss" en radiologie (urgences STAT, asymétries diagnostiques à ne pas manquer).`
 
-        const response = await callClaude(synthPrompt, `Brief de synthèse: ${entity_name}`, 6144)
+        const response = await callClaude(synthPrompt, `Brief de synthèse: ${entity_name}`, 8192)
         return parseBriefResponse(response)
       })
       return NextResponse.json(result)
@@ -286,7 +286,7 @@ is_critical: true si cette entité est un diagnostic "can't miss" / STAT en radi
 
       const userMessage = `Génère le brief complet pour: ${entity_name} (${entity_type})`
 
-      const response = await callClaude(systemPrompt, userMessage, 6144)
+      const response = await callClaude(systemPrompt, userMessage, 8192)
       return parseBriefResponse(response)
     })
 
