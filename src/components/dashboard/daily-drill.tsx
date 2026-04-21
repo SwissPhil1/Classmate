@@ -3,21 +3,40 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Zap, Check, X as XIcon, Pencil, ThumbsDown, ChevronRight, RotateCcw, EyeOff } from "lucide-react";
+import {
+  Zap,
+  Check,
+  X as XIcon,
+  Pencil,
+  ThumbsDown,
+  ChevronRight,
+  RotateCcw,
+  EyeOff,
+  Eye,
+  Sparkles,
+  Target,
+  Lightbulb,
+} from "lucide-react";
 import type { Entity } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { createTestResult, updateEntity, setEntityPriority } from "@/lib/supabase/queries";
 import { calculateNextReview } from "@/lib/spaced-repetition";
+import { extractDrillReveal, extractRawMnemonicBody, type DrillReveal } from "@/lib/brief-parsing";
 
 interface DailyDrillProps {
   items: Entity[];
   onCompleted?: () => void;
 }
 
+interface SessionResults {
+  known: string[];
+  forgotten: string[];
+}
+
 /**
  * Flashcard-style daily drill for vital entities (mnemonics + "can't miss"
- * diagnostics). Keyboard: Space=reveal, J=known, K=forgotten, H=retirer du drill,
- * E=edit brief, D=thumbs-down (rewrite mnemonic).
+ * diagnostics). Keyboard: Space=reveal, J=known, K=forgotten, H=retirer du drill.
+ * Touch-friendly: prominent reveal button above the J/K actions.
  */
 export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
   const supabase = createClient();
@@ -25,22 +44,30 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
   const [idx, setIdx] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [results, setResults] = useState<SessionResults>({ known: [], forgotten: [] });
+  const [isRetry, setIsRetry] = useState(false);
   const processingRef = useRef(false);
-  // Total reflects the live queue, so removals immediately update the counter.
   const total = queue.length;
 
-  // Reset if parent items change
+  // Reset if parent items change (new day / data refresh)
   useEffect(() => {
     setQueue(items);
     setIdx(0);
     setRevealed(false);
+    setResults({ known: [], forgotten: [] });
+    setIsRetry(false);
   }, [items]);
 
   const current = queue[idx] ?? null;
   const done = idx >= queue.length;
-  const mnemonicBody = useMemo(
-    () => (current ? extractMnemonicBody(current) : null),
+
+  const reveal = useMemo<DrillReveal | null>(
+    () => (current ? extractDrillReveal(current) : null),
     [current]
+  );
+  const fallbackBody = useMemo(
+    () => (current && !reveal ? extractRawMnemonicBody(current) : null),
+    [current, reveal]
   );
 
   const advance = useCallback(() => {
@@ -54,32 +81,47 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
       processingRef.current = true;
       setProcessing(true);
       try {
-        const update = calculateNextReview(
-          {
-            correct_streak: current.correct_streak,
-            difficulty_level: current.difficulty_level,
-            status: current.status,
-            cycle_count: current.cycle_count,
-            last_tested: current.last_tested,
-            priority: current.priority,
-          },
-          result
-        );
-        await Promise.all([
-          createTestResult(supabase, {
-            entity_id: current.id,
-            session_id: null,
-            question_text: `Drill mnémo / vital: ${current.name}`,
-            question_type: "B_open",
-            user_answer: null,
-            result,
-            auto_evaluated: false,
-            feedback: null,
-            is_pretest: false,
-            interleaved_session: false,
-          }),
-          updateEntity(supabase, current.id, update),
-        ]);
+        // In retry mode we only refresh local tracking — no new test_result, no
+        // SRS update. The forgotten cards already have an SRS entry from the
+        // first pass; a second-pass booster shouldn't double-count.
+        if (!isRetry) {
+          const update = calculateNextReview(
+            {
+              correct_streak: current.correct_streak,
+              difficulty_level: current.difficulty_level,
+              status: current.status,
+              cycle_count: current.cycle_count,
+              last_tested: current.last_tested,
+              priority: current.priority,
+            },
+            result
+          );
+          await Promise.all([
+            createTestResult(supabase, {
+              entity_id: current.id,
+              session_id: null,
+              question_text: `Drill mnémo / vital: ${current.name}`,
+              question_type: "B_open",
+              user_answer: null,
+              result,
+              auto_evaluated: false,
+              feedback: null,
+              is_pretest: false,
+              interleaved_session: false,
+            }),
+            updateEntity(supabase, current.id, update),
+          ]);
+        }
+        const entityId = current.id;
+        setResults((prev) => {
+          const next: SessionResults = {
+            known: prev.known.filter((id) => id !== entityId),
+            forgotten: prev.forgotten.filter((id) => id !== entityId),
+          };
+          if (result === "correct") next.known.push(entityId);
+          else next.forgotten.push(entityId);
+          return next;
+        });
         advance();
       } catch (err) {
         console.error("Drill answer error:", err);
@@ -89,7 +131,7 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
         setProcessing(false);
       }
     },
-    [current, supabase, advance]
+    [current, supabase, advance, isRetry]
   );
 
   const removeFromDrill = useCallback(async () => {
@@ -98,8 +140,6 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
     setProcessing(true);
     try {
       await setEntityPriority(supabase, current.id, "normal", "manual");
-      // Pop the current entity from the local queue and keep the same idx,
-      // which now points at what used to be the next card.
       const removedId = current.id;
       setQueue((q) => q.filter((e) => e.id !== removedId));
       setRevealed(false);
@@ -113,12 +153,22 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
     }
   }, [current, supabase]);
 
+  const retryForgotten = useCallback(() => {
+    const forgottenIds = new Set(results.forgotten);
+    const forgottenCards = items.filter((e) => forgottenIds.has(e.id));
+    if (forgottenCards.length === 0) return;
+    setQueue(forgottenCards);
+    setIdx(0);
+    setRevealed(false);
+    setResults({ known: [], forgotten: [] });
+    setIsRetry(true);
+  }, [items, results.forgotten]);
+
   // Keyboard shortcuts
   useEffect(() => {
     if (done) return;
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      // Ignore if user is typing in an input/textarea
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
         return;
       }
@@ -143,24 +193,90 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
   if (total === 0) return null;
 
   if (done) {
+    const knownCount = results.known.length;
+    const forgottenCount = results.forgotten.length;
+    const graded = knownCount + forgottenCount;
+    const pct = graded > 0 ? Math.round((knownCount / graded) * 100) : 0;
+    const forgottenEntities = items.filter((e) => results.forgotten.includes(e.id));
+
     return (
-      <div className="bg-card border border-amber/30 rounded-xl p-5 space-y-3">
+      <div className="bg-card border border-amber/30 rounded-xl p-5 space-y-4">
         <div className="flex items-center gap-2">
           <Zap className="w-4 h-4 text-amber" />
-          <h2 className="text-sm font-semibold text-foreground">Drill terminé</h2>
+          <h2 className="text-sm font-semibold text-foreground">
+            {isRetry ? "Révision terminée" : "Drill terminé"}
+          </h2>
         </div>
-        <p className="text-sm text-muted-foreground">
-          {total} carte{total > 1 ? "s" : ""} revue{total > 1 ? "s" : ""} aujourd&apos;hui.
-        </p>
-        {onCompleted && (
-          <button
-            onClick={() => onCompleted()}
-            className="flex items-center gap-1.5 text-xs text-teal hover:text-teal-light transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Actualiser
-          </button>
+
+        {graded > 0 ? (
+          <>
+            <div className="space-y-2">
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-bold text-foreground">
+                  {knownCount}/{graded}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {pct}% connus
+                </span>
+              </div>
+              <div className="h-1.5 bg-border rounded-full overflow-hidden flex">
+                <div
+                  className="h-full bg-correct"
+                  style={{ width: `${(knownCount / graded) * 100}%` }}
+                />
+                <div
+                  className="h-full bg-wrong"
+                  style={{ width: `${(forgottenCount / graded) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {forgottenEntities.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  À revoir ({forgottenEntities.length})
+                </p>
+                <ul className="space-y-1">
+                  {forgottenEntities.slice(0, 8).map((e) => (
+                    <li key={e.id} className="text-xs text-foreground">
+                      · {e.name}
+                    </li>
+                  ))}
+                  {forgottenEntities.length > 8 && (
+                    <li className="text-xs text-muted-foreground">
+                      … et {forgottenEntities.length - 8} autres
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {total} carte{total > 1 ? "s" : ""} revue{total > 1 ? "s" : ""}.
+          </p>
         )}
+
+        <div className="flex items-center gap-3 pt-1">
+          {forgottenEntities.length > 0 && (
+            <button
+              onClick={retryForgotten}
+              className="flex items-center justify-center gap-1.5 h-10 px-4 bg-amber/10 border border-amber/30 text-amber rounded-lg text-sm font-medium hover:bg-amber/20 transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Revoir les oubliés ({forgottenEntities.length})
+            </button>
+          )}
+          {onCompleted && (
+            <button
+              onClick={() => onCompleted()}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Actualiser
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -168,6 +284,7 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
   if (!current) return null;
 
   const progress = Math.round((idx / total) * 100);
+  const hasAnyReveal = reveal !== null || fallbackBody !== null;
 
   return (
     <div className="bg-card border border-amber/30 rounded-xl p-5 space-y-4">
@@ -176,7 +293,7 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
         <div className="flex items-center gap-2">
           <Zap className="w-4 h-4 text-amber" />
           <h2 className="text-sm font-semibold text-foreground">
-            Drill du jour · {idx + 1}/{total}
+            {isRetry ? "Révision" : "Drill du jour"} · {idx + 1}/{total}
           </h2>
         </div>
         <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
@@ -189,8 +306,8 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
         <div className="h-full bg-amber transition-all" style={{ width: `${progress}%` }} />
       </div>
 
-      {/* Card */}
-      <div className="bg-background border border-border rounded-xl p-5 min-h-[140px] flex flex-col justify-center gap-3">
+      {/* Card — question face */}
+      <div className="bg-background border border-border rounded-xl p-5 min-h-[120px] flex flex-col justify-center gap-2">
         <div className="text-center space-y-1">
           <p className="text-xs text-muted-foreground">{current.chapter?.name ?? ""}</p>
           <p className="text-lg font-semibold text-foreground">{current.name}</p>
@@ -200,22 +317,28 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
             </p>
           )}
         </div>
-
-        {revealed && mnemonicBody && (
-          <div className="mt-2 bg-card border border-border rounded-lg p-3 text-xs text-foreground whitespace-pre-wrap max-h-48 overflow-auto">
-            {mnemonicBody}
-          </div>
-        )}
       </div>
 
-      {/* Reveal hint */}
-      {!revealed && (
+      {/* Reveal zone */}
+      {!revealed ? (
         <button
           onClick={() => setRevealed(true)}
-          className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors"
+          disabled={!hasAnyReveal}
+          className="w-full flex items-center justify-center gap-2 h-11 border border-dashed border-border rounded-lg text-sm text-muted-foreground hover:text-foreground hover:border-teal/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {mnemonicBody ? "Révéler (Espace)" : "Espace pour afficher le rappel"}
+          <Eye className="w-4 h-4" />
+          {hasAnyReveal ? "Toucher ou Espace pour révéler" : "Pas de rappel disponible"}
         </button>
+      ) : (
+        <div className="space-y-2">
+          {reveal ? (
+            <StructuredReveal reveal={reveal} />
+          ) : fallbackBody ? (
+            <div className="bg-background border border-border rounded-lg p-3 text-xs text-foreground whitespace-pre-wrap max-h-48 overflow-auto">
+              {fallbackBody}
+            </div>
+          ) : null}
+        </div>
       )}
 
       {/* Actions */}
@@ -223,7 +346,7 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
         <button
           onClick={() => answer("wrong")}
           disabled={processing}
-          className="flex items-center justify-center gap-1.5 h-11 bg-wrong/10 border border-wrong/20 text-wrong rounded-lg text-sm font-medium hover:bg-wrong/20 transition-colors disabled:opacity-50"
+          className="flex items-center justify-center gap-1.5 h-12 bg-wrong/10 border border-wrong/20 text-wrong rounded-lg text-sm font-medium hover:bg-wrong/20 transition-colors disabled:opacity-50"
         >
           <XIcon className="w-4 h-4" />
           Oublié <span className="text-[10px] opacity-60 ml-1">K</span>
@@ -231,7 +354,7 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
         <button
           onClick={() => answer("correct")}
           disabled={processing}
-          className="flex items-center justify-center gap-1.5 h-11 bg-correct/10 border border-correct/20 text-correct rounded-lg text-sm font-medium hover:bg-correct/20 transition-colors disabled:opacity-50"
+          className="flex items-center justify-center gap-1.5 h-12 bg-correct/10 border border-correct/20 text-correct rounded-lg text-sm font-medium hover:bg-correct/20 transition-colors disabled:opacity-50"
         >
           <Check className="w-4 h-4" />
           Connu <span className="text-[10px] opacity-60 ml-1">J</span>
@@ -273,37 +396,69 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
   );
 }
 
-/**
- * Extract a ~400-char snippet from the brief to show on card flip. Prefers the
- * "## Mnémonique" section if present, otherwise falls back to "## Perles" or
- * "## Vue d'ensemble".
- */
-function extractMnemonicBody(entity: Entity): string | null {
-  const content = entity.brief?.content;
-  if (!content) return null;
-  const preferred = [/mn[ée]moni[qQ]ue/i, /perle/i, /vue d['’]ensemble/i];
-  for (const re of preferred) {
-    const snippet = extractSection(content, re);
-    if (snippet) return snippet.length > 400 ? snippet.substring(0, 400).trim() + "…" : snippet;
-  }
-  return null;
+function StructuredReveal({ reveal }: { reveal: DrillReveal }) {
+  return (
+    <div className="space-y-2">
+      {reveal.mnemonicExpansion && reveal.mnemonicExpansion.length > 0 && (
+        <RevealBlock
+          icon={<Sparkles className="w-3.5 h-3.5 text-amber" />}
+          label="Mnémonique"
+        >
+          <ul className="space-y-0.5">
+            {reveal.mnemonicExpansion.map((line, i) => (
+              <li key={i} className="text-xs text-foreground leading-relaxed">
+                {line}
+              </li>
+            ))}
+          </ul>
+        </RevealBlock>
+      )}
+      {reveal.ddxTop3 && reveal.ddxTop3.length > 0 && (
+        <RevealBlock
+          icon={<Target className="w-3.5 h-3.5 text-teal" />}
+          label="DDx clés"
+        >
+          <ul className="space-y-0.5">
+            {reveal.ddxTop3.map((line, i) => (
+              <li key={i} className="text-xs text-foreground leading-relaxed">
+                · {line}
+              </li>
+            ))}
+          </ul>
+        </RevealBlock>
+      )}
+      {reveal.pearl && (
+        <RevealBlock
+          icon={<Lightbulb className="w-3.5 h-3.5 text-correct" />}
+          label="Perle"
+        >
+          <p className="text-xs text-foreground leading-relaxed italic">
+            « {reveal.pearl} »
+          </p>
+        </RevealBlock>
+      )}
+    </div>
+  );
 }
 
-function extractSection(markdown: string, headerPattern: RegExp): string | null {
-  const lines = markdown.split("\n");
-  let capturing = false;
-  const buf: string[] = [];
-  for (const line of lines) {
-    if (line.startsWith("## ")) {
-      if (capturing) break;
-      if (headerPattern.test(line)) {
-        capturing = true;
-        continue;
-      }
-    } else if (capturing) {
-      buf.push(line);
-    }
-  }
-  const text = buf.join("\n").trim();
-  return text.length > 0 ? text : null;
+function RevealBlock({
+  icon,
+  label,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="bg-background border border-border rounded-lg p-3 space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        {icon}
+        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+          {label}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
 }

@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import DOMPurify from "dompurify";
 import type { Brief, EntityType, QAPair } from "@/lib/types";
 import { ChevronDown, Pencil, Check, Eye, EyeOff, ThumbsDown, X, Loader2 } from "lucide-react";
+import { parseSections, sectionsToMarkdown, type Section } from "@/lib/brief-parsing";
 
 interface BriefContentProps {
   brief: Brief;
@@ -16,56 +17,6 @@ interface BriefContentProps {
 
 function isMnemonicSectionTitle(title: string): boolean {
   return /mn[ée]moni[qQ]ue/i.test(title);
-}
-
-interface Section {
-  title: string;
-  content: string;
-  alwaysOpen?: boolean;
-}
-
-function parseSections(markdown: string): Section[] {
-  const sections: Section[] = [];
-  const lines = markdown.split("\n");
-  let currentTitle = "";
-  let currentContent: string[] = [];
-  let isFirst = true;
-
-  for (const line of lines) {
-    if (line.startsWith("## ")) {
-      if (currentTitle || currentContent.length > 0) {
-        sections.push({
-          title: currentTitle || "Vue d'ensemble",
-          content: currentContent.join("\n").trim(),
-          alwaysOpen: isFirst,
-        });
-        isFirst = false;
-      }
-      currentTitle = line.replace("## ", "");
-      currentContent = [];
-    } else {
-      currentContent.push(line);
-    }
-  }
-
-  if (currentTitle || currentContent.length > 0) {
-    sections.push({
-      title: currentTitle || "Contenu",
-      content: currentContent.join("\n").trim(),
-      alwaysOpen: isFirst,
-    });
-  }
-
-  return sections;
-}
-
-function sectionsToMarkdown(sections: Section[]): string {
-  return sections
-    .map((s) => {
-      const header = `## ${s.title}`;
-      return `${header}\n${s.content}`;
-    })
-    .join("\n\n");
 }
 
 function CollapsibleSection({
