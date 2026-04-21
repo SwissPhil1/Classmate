@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Zap, Check, X as XIcon, Pencil, ThumbsDown, ChevronRight, RotateCcw } from "lucide-react";
+import { Zap, Check, X as XIcon, Pencil, ThumbsDown, ChevronRight, RotateCcw, EyeOff } from "lucide-react";
 import type { Entity } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
-import { createTestResult, updateEntity } from "@/lib/supabase/queries";
+import { createTestResult, updateEntity, setEntityPriority } from "@/lib/supabase/queries";
 import { calculateNextReview } from "@/lib/spaced-repetition";
 
 interface DailyDrillProps {
@@ -16,8 +16,8 @@ interface DailyDrillProps {
 
 /**
  * Flashcard-style daily drill for vital entities (mnemonics + "can't miss"
- * diagnostics). Keyboard: Space=reveal, J=known, K=forgotten, E=edit brief,
- * D=thumbs-down (rewrite mnemonic).
+ * diagnostics). Keyboard: Space=reveal, J=known, K=forgotten, H=retirer du drill,
+ * E=edit brief, D=thumbs-down (rewrite mnemonic).
  */
 export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
   const supabase = createClient();
@@ -26,7 +26,8 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
   const [revealed, setRevealed] = useState(false);
   const [processing, setProcessing] = useState(false);
   const processingRef = useRef(false);
-  const total = items.length;
+  // Total reflects the live queue, so removals immediately update the counter.
+  const total = queue.length;
 
   // Reset if parent items change
   useEffect(() => {
@@ -91,6 +92,27 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
     [current, supabase, advance]
   );
 
+  const removeFromDrill = useCallback(async () => {
+    if (!current || processingRef.current) return;
+    processingRef.current = true;
+    setProcessing(true);
+    try {
+      await setEntityPriority(supabase, current.id, "normal", "manual");
+      // Pop the current entity from the local queue and keep the same idx,
+      // which now points at what used to be the next card.
+      const removedId = current.id;
+      setQueue((q) => q.filter((e) => e.id !== removedId));
+      setRevealed(false);
+      toast.success("Retiré du drill");
+    } catch (err) {
+      console.error("Drill remove error:", err);
+      toast.error("Impossible de retirer la carte.");
+    } finally {
+      processingRef.current = false;
+      setProcessing(false);
+    }
+  }, [current, supabase]);
+
   // Keyboard shortcuts
   useEffect(() => {
     if (done) return;
@@ -109,11 +131,14 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
       } else if (e.key === "k" || e.key === "K") {
         e.preventDefault();
         void answer("wrong");
+      } else if (e.key === "h" || e.key === "H") {
+        e.preventDefault();
+        void removeFromDrill();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [done, answer]);
+  }, [done, answer, removeFromDrill]);
 
   if (total === 0) return null;
 
@@ -224,6 +249,15 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
           Ouvrir le brief
           <ChevronRight className="w-3 h-3" />
         </Link>
+        <button
+          onClick={removeFromDrill}
+          disabled={processing}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-amber transition-colors disabled:opacity-50"
+          title="Retirer cette entité du drill (ne la re-taguera plus automatiquement)"
+        >
+          <EyeOff className="w-3.5 h-3.5" />
+          Retirer <span className="text-[10px] opacity-60 ml-0.5">H</span>
+        </button>
         {current.has_mnemonic && (
           <Link
             href={`/brief/${current.id}`}
