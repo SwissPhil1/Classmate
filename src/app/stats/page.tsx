@@ -15,7 +15,8 @@ import {
   recentlyTestedEntities,
   formatRelativeDate,
 } from "@/lib/stats";
-import { ArrowLeft, Check, AlertTriangle, XCircle, TrendingUp, TrendingDown, BookOpen } from "lucide-react";
+import { ArrowLeft, Check, AlertTriangle, XCircle, TrendingUp, TrendingDown, BookOpen, Zap, Loader2, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 
 const RESULT_ICON = {
   correct: { Icon: Check, color: "text-correct" },
@@ -31,6 +32,8 @@ export default function StatsPage() {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [results, setResults] = useState<TestResultRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [backfilling, setBackfilling] = useState(false);
+  const [lastBackfill, setLastBackfill] = useState<{ vital: number; mnemonic: number; evaluated: number } | null>(null);
 
   useEffect(() => {
     if (!userLoading && !user) router.push("/login");
@@ -57,6 +60,52 @@ export default function StatsPage() {
   const topTopics = topicAccuracy.slice(0, 5);
   const bottomTopics = [...topicAccuracy].reverse().slice(0, 5);
 
+  const vitalCount = useMemo(
+    () => entities.filter((e) => e.priority === "vital").length,
+    [entities]
+  );
+
+  const reloadEntities = async () => {
+    if (!user) return;
+    try {
+      const e = await getEntities(supabase, user.id);
+      setEntities(e);
+    } catch (err) {
+      console.error("Reload entities error:", err);
+    }
+  };
+
+  const handleBackfill = async () => {
+    if (backfilling) return;
+    setBackfilling(true);
+    try {
+      const res = await fetch("/api/claude/backfill-vital", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Backfill impossible");
+        return;
+      }
+      setLastBackfill({
+        vital: data.marked_vital ?? 0,
+        mnemonic: data.marked_mnemonic ?? 0,
+        evaluated: data.evaluated ?? 0,
+      });
+      toast.success(
+        `${data.marked_vital ?? 0} entités marquées vitales · ${data.marked_mnemonic ?? 0} avec mnémo`
+      );
+      await reloadEntities();
+    } catch (err) {
+      console.error("Backfill error:", err);
+      toast.error("Backfill indisponible");
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-sm border-b border-border">
@@ -79,6 +128,46 @@ export default function StatsPage() {
           </div>
         ) : (
           <>
+            {/* Auto-tag vital + mnemonics with Claude */}
+            <section className="bg-card border border-amber/30 rounded-xl p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <Zap className="w-5 h-5 text-amber flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground">
+                    Sujets vitaux & mnémos · {vitalCount} taggés
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Claude scanne tes briefs et marque les entités à forte asymétrie clinique
+                    (can&apos;t miss) + les mnémoniques vraiment utiles. Tes choix manuels restent
+                    intacts.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleBackfill}
+                disabled={backfilling}
+                className="w-full flex items-center justify-center gap-2 h-10 bg-amber/10 border border-amber/30 text-amber rounded-lg text-sm font-medium hover:bg-amber/20 transition-colors disabled:opacity-50 disabled:cursor-wait"
+              >
+                {backfilling ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Évaluation en cours… (peut prendre 30–60s)
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    {vitalCount === 0 ? "Lancer le tag automatique" : "Re-scanner avec Claude"}
+                  </>
+                )}
+              </button>
+              {lastBackfill && !backfilling && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Dernier scan : {lastBackfill.evaluated} évaluées · {lastBackfill.vital} vitales ·{" "}
+                  {lastBackfill.mnemonic} avec mnémo
+                </p>
+              )}
+            </section>
+
             {/* Section 1 — Vue d'ensemble */}
             <section className="space-y-3">
               <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
