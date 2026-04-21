@@ -14,6 +14,7 @@ interface CandidateInput {
   idx: number
   id: string
   name: string
+  chapter_id: string
   chapter: string
   topic: string
   brief_excerpt: string
@@ -24,6 +25,13 @@ interface ClaudeAuditRow {
   status: 'ok' | 'needs_fix'
   gaps: string[]
   suggested_grouping: string | null
+  suggested_chapter_id: string | null
+}
+
+interface ChapterOption {
+  id: string
+  name: string
+  topic: string
 }
 
 /**
@@ -44,16 +52,34 @@ export async function POST(request: NextRequest) {
     const chunkSize: number = typeof body?.chunk_size === 'number' ? body.chunk_size : 60
     const reset: boolean = body?.reset === true
 
-    const { data: rawEntities, error } = await supabase
-      .from('entities')
-      .select('id, name, chapter:chapters(name, topic:topics(name)), brief:briefs(content)')
-      .eq('user_id', user.id)
-      .order('name')
-    if (error) throw error
+    const [entitiesRes, chaptersRes] = await Promise.all([
+      supabase
+        .from('entities')
+        .select('id, name, chapter_id, chapter:chapters(name, topic:topics(name)), brief:briefs(content)')
+        .eq('user_id', user.id)
+        .order('name'),
+      supabase
+        .from('chapters')
+        .select('id, name, topic:topics(name)')
+        .order('name'),
+    ])
+    if (entitiesRes.error) throw entitiesRes.error
+    if (chaptersRes.error) throw chaptersRes.error
+    const rawEntities = entitiesRes.data
+    const chapterOptions: ChapterOption[] = (chaptersRes.data ?? []).map((c) => {
+      const topic = Array.isArray(c.topic) ? c.topic[0] : c.topic
+      return {
+        id: c.id as string,
+        name: c.name as string,
+        topic: topic?.name ?? '',
+      }
+    })
+    const chapterMap = new Map(chapterOptions.map((c) => [c.id, c]))
 
     type RawEntity = {
       id: string
       name: string
+      chapter_id: string
       chapter: { name?: string; topic?: { name?: string } | null } | { name?: string; topic?: { name?: string } | null }[] | null
       brief: { content?: string } | { content?: string }[] | null
     }
@@ -74,6 +100,7 @@ export async function POST(request: NextRequest) {
         idx: j,
         id: e.id,
         name: e.name,
+        chapter_id: e.chapter_id,
         chapter: chapter?.name ?? '',
         topic: chapter?.topic?.name ?? '',
         brief_excerpt: (brief?.content ?? '').substring(0, MAX_BRIEF_CHARS),
@@ -83,15 +110,32 @@ export async function POST(request: NextRequest) {
     const newItems: BriefAuditItem[] = []
     for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
       const batch = candidates.slice(i, i + BATCH_SIZE)
-      const rows = await auditBatch(batch)
+      const rows = await auditBatch(batch, chapterOptions)
       for (const row of rows) {
         const cand = batch[row.idx]
         if (!cand) continue
+        // Validate suggested_chapter_id: must exist and differ from current
+        let suggestedChapterId: string | null = null
+        let suggestedChapterName: string | null = null
+        let suggestedChapterTopic: string | null = null
+        if (
+          typeof row.suggested_chapter_id === 'string' &&
+          row.suggested_chapter_id !== cand.chapter_id &&
+          chapterMap.has(row.suggested_chapter_id)
+        ) {
+          const opt = chapterMap.get(row.suggested_chapter_id)!
+          suggestedChapterId = opt.id
+          suggestedChapterName = opt.name
+          suggestedChapterTopic = opt.topic
+        }
         newItems.push({
           entity_id: cand.id,
           status: row.status === 'needs_fix' ? 'needs_fix' : 'ok',
           gaps: Array.isArray(row.gaps) ? row.gaps.filter((g) => typeof g === 'string') : [],
           suggested_grouping: typeof row.suggested_grouping === 'string' && row.suggested_grouping.trim() ? row.suggested_grouping.trim() : null,
+          suggested_chapter_id: suggestedChapterId,
+          suggested_chapter_name: suggestedChapterName,
+          suggested_chapter_topic: suggestedChapterTopic,
           ignored: false,
         })
       }
@@ -152,32 +196,42 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function auditBatch(candidates: CandidateInput[]): Promise<ClaudeAuditRow[]> {
+async function auditBatch(
+  candidates: CandidateInput[],
+  chapterOptions: ChapterOption[]
+): Promise<ClaudeAuditRow[]> {
   const list = candidates.map((c) => ({
     idx: c.idx,
     name: c.name,
-    chapter: c.chapter,
+    current_chapter_id: c.chapter_id,
+    current_chapter: c.chapter,
     topic: c.topic,
     brief: c.brief_excerpt,
   }))
 
-  const systemPrompt = `Tu es un radiologue expert et coach FMH2 suisse. Tu vas auditer une liste de briefs d'étude radiologique. Pour CHAQUE entité, évalue si le brief est complet et bien structuré pour préparer l'examen FMH2.
+  const chaptersBlock = chapterOptions
+    .map((c) => `- ${c.id} · "${c.name}" (topic: ${c.topic})`)
+    .join('\n')
 
-Critères d'audit — flag un manque si UN de ces points est vrai :
+  const systemPrompt = `Tu es un radiologue expert et coach FMH2 suisse. Tu vas auditer une liste de briefs d'étude radiologique. Pour CHAQUE entité, évalue si le brief est complet et bien structuré pour préparer l'examen FMH2, ET si l'entité est bien classée dans le bon chapitre.
+
+Critères d'audit — flag un manque (status: "needs_fix") si UN de ces points est vrai :
 - **DDx incomplet** : une cause fréquente et cliniquement importante manque dans la liste (exemple : brief sur le nerf optique sans mentionner la SEP / névrite démyélinisante ; brief sur masses médiastinales antérieures sans thymome).
 - **Perle cruciale manquante** : un signe pathognomonique ou une règle d'or FMH2 est absente alors qu'elle aurait dû y être (exemple : restriction de diffusion pour un abcès cérébral, signe du "double halo" pour dissection aortique).
 - **Section vide ou squelettique** : une section importante (Matrice modalités, Template oral, Perles) est absente ou contient moins de 2 items utiles.
-- **Regroupement étiologique possible** : la liste DDx n'est pas groupée par thème alors qu'elle le pourrait (exemple : DDx nerf optique = Inflammatoire [névrite, SEP] / Compressif [méningiome, gliome] / Infiltratif [lymphome, sarcoïdose]). Si le regroupement apporterait de la clarté, propose-le.
+- **Regroupement étiologique possible** : la liste DDx n'est pas groupée par thème alors qu'elle le pourrait (exemple : DDx nerf optique = Inflammatoire [névrite, SEP] / Compressif [méningiome, gliome] / Infiltratif [lymphome, sarcoïdose]).
 
-Si tout est OK → status: "ok", gaps: [], suggested_grouping: null.
-Si au moins un critère flag → status: "needs_fix".
+Pour chaque gap, sois SPÉCIFIQUE et ACTIONNABLE. Max 4 gaps par entité.
 
-Pour chaque gap, sois SPÉCIFIQUE et ACTIONNABLE (pas "le brief est incomplet" mais "manque SEP/névrite démyélinisante comme cause fréquente inflammatoire"). Maximum 4 gaps par entité.
+Pour suggested_grouping : phrase courte "Thème1 → Thème2 → Thème3" si pertinent, sinon null.
 
-Pour suggested_grouping : une phrase courte au format "Thème1 → Thème2 → Thème3" si pertinent, sinon null.
+**Classification par chapitre** : voici la liste des chapitres disponibles (id · "nom" · topic) :
+${chaptersBlock}
 
-Renvoie UNIQUEMENT un JSON array, un objet par entité dans l'ordre fourni :
-[{"idx": 0, "status": "ok"|"needs_fix", "gaps": ["..."], "suggested_grouping": "..."|null}, ...]
+Pour chaque entité, vérifie si son current_chapter_id est pertinent. Si l'entité serait mieux classée dans un autre chapitre de la liste ci-dessus, renvoie son id dans \`suggested_chapter_id\`. Sois conservateur : ne suggère un déplacement QUE si le chapitre actuel est clairement inadapté (exemple : "Gliome optique" dans "Cardiovasculaire" — évident). Si le chapitre actuel est raisonnable, renvoie null. Ne JAMAIS renvoyer current_chapter_id (ce serait no-op).
+
+Renvoie UNIQUEMENT un JSON array :
+[{"idx": 0, "status": "ok"|"needs_fix", "gaps": ["..."], "suggested_grouping": "..."|null, "suggested_chapter_id": "uuid"|null}, ...]
 
 Pas de texte avant/après. Pas de fence \`\`\`.`
 

@@ -168,6 +168,11 @@ export interface BriefAuditItem {
   status: 'ok' | 'needs_fix'
   gaps: string[]
   suggested_grouping: string | null
+  /** Claude's suggestion for a better chapter match, if the entity looks
+   *  misclassified. Null when the current chapter is fine. */
+  suggested_chapter_id: string | null
+  suggested_chapter_name: string | null
+  suggested_chapter_topic: string | null
   ignored: boolean
 }
 

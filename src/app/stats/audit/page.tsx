@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowLeft, ArrowRight, Check, AlertTriangle, Loader2, RefreshCw, Sparkles, EyeOff } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, AlertTriangle, Loader2, RefreshCw, Sparkles, EyeOff, FolderSymlink } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { getEntities, updateEntity } from "@/lib/supabase/queries";
@@ -226,9 +226,47 @@ export default function AuditPage() {
     toast.success("Corrections en masse terminées");
   };
 
-  const needsFix = (report?.items ?? []).filter((it) => it.status === "needs_fix" && !it.ignored);
-  const ignored = (report?.items ?? []).filter((it) => it.status === "needs_fix" && it.ignored);
-  const okCount = (report?.items ?? []).filter((it) => it.status === "ok").length;
+  const moveChapter = async (entityId: string, newChapterId: string) => {
+    if (!user) return;
+    try {
+      await updateEntity(supabase, entityId, { chapter_id: newChapterId });
+      // Mark suggestion as applied locally (drop suggested_chapter fields)
+      if (report) {
+        const updated: BriefAuditReport = {
+          ...report,
+          items: report.items.map((it) =>
+            it.entity_id === entityId
+              ? {
+                  ...it,
+                  suggested_chapter_id: null,
+                  suggested_chapter_name: null,
+                  suggested_chapter_topic: null,
+                }
+              : it
+          ),
+        };
+        setReport(updated);
+        await supabase
+          .from("user_settings")
+          .update({ last_audit: updated })
+          .eq("user_id", user.id);
+      }
+      // Reload entities to reflect new chapter
+      const ents = await getEntities(supabase, user.id);
+      setEntities(ents);
+      toast.success("Entité déplacée");
+    } catch (err) {
+      console.error("Move chapter error:", err);
+      toast.error("Déplacement impossible");
+    }
+  };
+
+  const hasActionable = (it: BriefAuditItem) =>
+    it.status === "needs_fix" || it.suggested_chapter_id !== null;
+
+  const needsFix = (report?.items ?? []).filter((it) => hasActionable(it) && !it.ignored);
+  const ignored = (report?.items ?? []).filter((it) => hasActionable(it) && it.ignored);
+  const okCount = (report?.items ?? []).filter((it) => !hasActionable(it)).length;
 
   return (
     <div className="min-h-screen bg-background pb-16">
@@ -335,6 +373,11 @@ export default function AuditPage() {
                           applying={applyingIds.has(item.entity_id)}
                           onApply={() => applyFix(item)}
                           onIgnore={() => toggleIgnore(item.entity_id)}
+                          onMoveChapter={
+                            item.suggested_chapter_id
+                              ? () => moveChapter(item.entity_id, item.suggested_chapter_id!)
+                              : undefined
+                          }
                         />
                       ))}
                     </div>
@@ -423,12 +466,14 @@ function AuditCard({
   applying,
   onApply,
   onIgnore,
+  onMoveChapter,
 }: {
   item: BriefAuditItem;
   entity: Entity | undefined;
   applying: boolean;
   onApply: () => void;
   onIgnore: () => void;
+  onMoveChapter?: () => void;
 }) {
   if (!entity) {
     return (
@@ -437,6 +482,9 @@ function AuditCard({
       </div>
     );
   }
+  const hasGaps = item.gaps.length > 0;
+  const hasChapterSuggestion = item.suggested_chapter_id && item.suggested_chapter_name;
+
   return (
     <div className="bg-card border border-wrong/20 rounded-xl p-4 space-y-3">
       <div className="flex items-start gap-2">
@@ -447,7 +495,7 @@ function AuditCard({
         </div>
       </div>
 
-      {item.gaps.length > 0 && (
+      {hasGaps && (
         <ul className="space-y-1 pl-6">
           {item.gaps.map((g, i) => (
             <li key={i} className="text-xs text-foreground">
@@ -464,25 +512,49 @@ function AuditCard({
         </div>
       )}
 
+      {hasChapterSuggestion && (
+        <div className="pl-6 bg-amber/5 border border-amber/20 rounded-lg p-2 space-y-1.5">
+          <p className="text-xs text-foreground">
+            <FolderSymlink className="w-3 h-3 inline-block mr-1 text-amber align-text-bottom" />
+            Chapitre mieux adapté :{" "}
+            <span className="font-medium">{item.suggested_chapter_name}</span>
+            {item.suggested_chapter_topic && (
+              <span className="text-muted-foreground"> ({item.suggested_chapter_topic})</span>
+            )}
+          </p>
+          {onMoveChapter && (
+            <button
+              onClick={onMoveChapter}
+              disabled={applying}
+              className="text-xs text-amber hover:text-amber/80 transition-colors disabled:opacity-50"
+            >
+              Déplacer →
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">
-          <button
-            onClick={onApply}
-            disabled={applying}
-            className="flex items-center gap-1.5 text-xs bg-teal text-white px-3 py-1.5 rounded-lg hover:bg-teal-light transition-colors disabled:opacity-50"
-          >
-            {applying ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Correction…
-              </>
-            ) : (
-              <>
-                Appliquer la correction
-                <ArrowRight className="w-3.5 h-3.5" />
-              </>
-            )}
-          </button>
+          {hasGaps && (
+            <button
+              onClick={onApply}
+              disabled={applying}
+              className="flex items-center gap-1.5 text-xs bg-teal text-white px-3 py-1.5 rounded-lg hover:bg-teal-light transition-colors disabled:opacity-50"
+            >
+              {applying ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Correction…
+                </>
+              ) : (
+                <>
+                  Appliquer la correction
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </>
+              )}
+            </button>
+          )}
           <Link
             href={`/brief/${entity.id}`}
             target="_blank"
