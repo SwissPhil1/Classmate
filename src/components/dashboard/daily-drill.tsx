@@ -285,6 +285,10 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
 
   const progress = Math.round((idx / total) * 100);
   const hasAnyReveal = reveal !== null || fallbackBody !== null;
+  const briefContent = Array.isArray(current.brief)
+    ? (current.brief[0]?.content ?? null)
+    : (current.brief?.content ?? null);
+  const briefMissing = !briefContent || briefContent.trim().length === 0;
 
   return (
     <div className="bg-card border border-amber/30 rounded-xl p-5 space-y-4">
@@ -321,14 +325,25 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
 
       {/* Reveal zone */}
       {!revealed ? (
-        <button
-          onClick={() => setRevealed(true)}
-          disabled={!hasAnyReveal}
-          className="w-full flex items-center justify-center gap-2 h-11 border border-dashed border-border rounded-lg text-sm text-muted-foreground hover:text-foreground hover:border-teal/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Eye className="w-4 h-4" />
-          {hasAnyReveal ? "Toucher ou Espace pour révéler" : "Pas de rappel disponible"}
-        </button>
+        hasAnyReveal ? (
+          <button
+            onClick={() => setRevealed(true)}
+            className="w-full flex items-center justify-center gap-2 h-11 border border-dashed border-border rounded-lg text-sm text-muted-foreground hover:text-foreground hover:border-teal/40 transition-colors"
+          >
+            <Eye className="w-4 h-4" />
+            Toucher ou Espace pour révéler
+          </button>
+        ) : (
+          <Link
+            href={`/brief/${current.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center justify-center gap-2 h-11 border border-dashed border-wrong/30 rounded-lg text-sm text-wrong hover:bg-wrong/5 transition-colors"
+          >
+            <Eye className="w-4 h-4" />
+            {briefMissing ? "Brief non généré — ouvrir" : "Brief illisible — ouvrir"}
+          </Link>
+        )
       ) : (
         <div className="space-y-2">
           {reveal ? (

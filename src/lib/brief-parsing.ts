@@ -72,12 +72,12 @@ export interface DrillReveal {
  * fall back to a raw markdown snippet in that case.
  */
 export function extractDrillReveal(entity: Entity): DrillReveal | null {
-  const content = entity.brief?.content;
+  const content = getBriefContent(entity);
   if (!content) return null;
 
   const sections = parseSections(content);
   const mnemonicSection = findSection(sections, /mn[ée]moni[qQ]ue/i);
-  const perlesSection = findSection(sections, /^perles?$/i);
+  const perlesSection = findSection(sections, /\bperles?\b/i);
   const oralSection = findSection(sections, /template.*oral|pr[ée]sentation orale/i);
   const summarySection = findSection(sections, /r[ée]sum[ée].*diagnostic/i);
 
@@ -208,22 +208,52 @@ function extractPearl(sectionContent: string): string | null {
 }
 
 /**
- * Fallback: return a raw snippet of the most useful section (Mnémonique →
- * Perles → Vue d'ensemble), capped at `maxChars`. Used when
- * `extractDrillReveal` returns null.
+ * Return a usable markdown snippet from the brief. First tries the preferred
+ * sections (Mnémonique → Perles → Vue d'ensemble), then falls back to the
+ * first non-empty section, then to the first `maxChars` of raw content.
+ * Only returns null when the brief itself is missing or entirely blank.
  */
 export function extractRawMnemonicBody(entity: Entity, maxChars = 400): string | null {
-  const content = entity.brief?.content;
-  if (!content) return null;
+  const content = getBriefContent(entity);
+  if (!content || !content.trim()) return null;
+
   const sections = parseSections(content);
-  const patterns = [/mn[ée]moni[qQ]ue/i, /^perles?$/i, /vue d['’]ensemble/i];
+  const patterns = [/mn[ée]moni[qQ]ue/i, /\bperles?\b/i, /vue d['’]ensemble/i];
   for (const re of patterns) {
     const section = findSection(sections, re);
-    if (section && section.content) {
-      return section.content.length > maxChars
-        ? section.content.substring(0, maxChars).trim() + "…"
-        : section.content;
+    if (section && section.content.trim()) {
+      return truncate(section.content, maxChars);
     }
   }
+
+  // No preferred section matched — fall back to the first section with content.
+  const firstWithContent = sections.find((s) => s.content.trim().length > 20);
+  if (firstWithContent) return truncate(firstWithContent.content, maxChars);
+
+  // Last resort: return a snippet of the whole brief, stripped of headers.
+  const stripped = content.replace(/^#+\s.*$/gm, "").trim();
+  if (stripped.length > 0) return truncate(stripped, maxChars);
   return null;
+}
+
+function truncate(text: string, maxChars: number): string {
+  const trimmed = text.trim();
+  return trimmed.length > maxChars ? trimmed.substring(0, maxChars).trim() + "…" : trimmed;
+}
+
+/**
+ * Defensive brief-content accessor. Supabase's `.select('..., brief:briefs(content)')`
+ * returns a single object when the FK has a UNIQUE constraint (which it does
+ * in this schema), but some code paths in the app still treat it as an array.
+ * Handle both for safety.
+ */
+function getBriefContent(entity: Entity): string | null {
+  const b = entity.brief as unknown;
+  if (!b) return null;
+  if (Array.isArray(b)) {
+    const first = b[0] as { content?: string } | undefined;
+    return first?.content ?? null;
+  }
+  const obj = b as { content?: string };
+  return obj.content ?? null;
 }
