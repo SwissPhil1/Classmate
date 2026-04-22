@@ -40,12 +40,15 @@ interface SessionResults {
  */
 export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
   const supabase = createClient();
-  const [mnemonicsOnly, setMnemonicsOnly] = useState(false);
+  const mnemonicItemCount = useMemo(() => items.filter((e) => e.has_mnemonic).length, [items]);
+  // Default to mnemonics-only when any mnemonic is due — the drill is most
+  // valuable as rapid-fire mnemonic recall. Can't-miss diagnostics still get
+  // their SRS priority compression in the normal session queue.
+  const [mnemonicsOnly, setMnemonicsOnly] = useState(() => mnemonicItemCount > 0);
   const filteredItems = useMemo(
     () => (mnemonicsOnly ? items.filter((e) => e.has_mnemonic) : items),
     [items, mnemonicsOnly]
   );
-  const mnemonicItemCount = useMemo(() => items.filter((e) => e.has_mnemonic).length, [items]);
   const [queue, setQueue] = useState<Entity[]>(filteredItems);
   const [idx, setIdx] = useState(0);
   const [revealed, setRevealed] = useState(false);
