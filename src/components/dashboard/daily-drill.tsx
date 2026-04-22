@@ -40,7 +40,13 @@ interface SessionResults {
  */
 export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
   const supabase = createClient();
-  const [queue, setQueue] = useState<Entity[]>(items);
+  const [mnemonicsOnly, setMnemonicsOnly] = useState(false);
+  const filteredItems = useMemo(
+    () => (mnemonicsOnly ? items.filter((e) => e.has_mnemonic) : items),
+    [items, mnemonicsOnly]
+  );
+  const mnemonicItemCount = useMemo(() => items.filter((e) => e.has_mnemonic).length, [items]);
+  const [queue, setQueue] = useState<Entity[]>(filteredItems);
   const [idx, setIdx] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -49,14 +55,14 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
   const processingRef = useRef(false);
   const total = queue.length;
 
-  // Reset if parent items change (new day / data refresh)
+  // Reset if parent items change OR filter toggles
   useEffect(() => {
-    setQueue(items);
+    setQueue(filteredItems);
     setIdx(0);
     setRevealed(false);
     setResults({ known: [], forgotten: [] });
     setIsRetry(false);
-  }, [items]);
+  }, [filteredItems]);
 
   const current = queue[idx] ?? null;
   const done = idx >= queue.length;
@@ -300,9 +306,24 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
             {isRetry ? "Révision" : "Drill du jour"} · {idx + 1}/{total}
           </h2>
         </div>
-        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-          vital
-        </span>
+        <div className="flex items-center gap-3">
+          {mnemonicItemCount > 0 && !isRetry && (
+            <button
+              onClick={() => setMnemonicsOnly((v) => !v)}
+              className={`text-[10px] uppercase tracking-wider px-2 py-1 rounded-full transition-colors ${
+                mnemonicsOnly
+                  ? "bg-amber/20 text-amber border border-amber/40"
+                  : "text-muted-foreground hover:text-foreground border border-transparent"
+              }`}
+              title={mnemonicsOnly ? "Afficher tous les vitaux" : "Afficher seulement les mnémos"}
+            >
+              {mnemonicsOnly ? `Mnémos (${mnemonicItemCount})` : `Tout (${items.length})`}
+            </button>
+          )}
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+            vital
+          </span>
+        </div>
       </div>
 
       {/* Progress bar */}
@@ -310,8 +331,17 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
         <div className="h-full bg-amber transition-all" style={{ width: `${progress}%` }} />
       </div>
 
-      {/* Card — question face */}
-      <div className="bg-background border border-border rounded-xl p-5 min-h-[120px] flex flex-col justify-center gap-2">
+      {/* Card — tap anywhere to flip */}
+      <button
+        type="button"
+        onClick={() => hasAnyReveal && setRevealed((r) => !r)}
+        disabled={!hasAnyReveal}
+        className={`w-full bg-background border rounded-xl p-5 min-h-[140px] flex flex-col justify-center gap-3 text-left transition-colors ${
+          hasAnyReveal
+            ? "border-border hover:border-teal/40 cursor-pointer"
+            : "border-border cursor-default"
+        }`}
+      >
         <div className="text-center space-y-1">
           <p className="text-xs text-muted-foreground">{current.chapter?.name ?? ""}</p>
           <p className="text-lg font-semibold text-foreground">{current.name}</p>
@@ -321,39 +351,34 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
             </p>
           )}
         </div>
-      </div>
 
-      {/* Reveal zone */}
-      {!revealed ? (
-        hasAnyReveal ? (
-          <button
-            onClick={() => setRevealed(true)}
-            className="w-full flex items-center justify-center gap-2 h-11 border border-dashed border-border rounded-lg text-sm text-muted-foreground hover:text-foreground hover:border-teal/40 transition-colors"
-          >
-            <Eye className="w-4 h-4" />
-            Toucher ou Espace pour révéler
-          </button>
-        ) : (
-          <Link
-            href={`/brief/${current.id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full flex items-center justify-center gap-2 h-11 border border-dashed border-wrong/30 rounded-lg text-sm text-wrong hover:bg-wrong/5 transition-colors"
-          >
-            <Eye className="w-4 h-4" />
-            {briefMissing ? "Brief non généré — ouvrir" : "Brief illisible — ouvrir"}
-          </Link>
-        )
-      ) : (
-        <div className="space-y-2">
-          {reveal ? (
+        {revealed ? (
+          reveal ? (
             <StructuredReveal reveal={reveal} />
           ) : fallbackBody ? (
-            <div className="bg-background border border-border rounded-lg p-3 text-xs text-foreground whitespace-pre-wrap max-h-48 overflow-auto">
+            <div className="bg-card border border-border rounded-lg p-3 text-xs text-foreground whitespace-pre-wrap max-h-48 overflow-auto">
               {fallbackBody}
             </div>
-          ) : null}
-        </div>
+          ) : null
+        ) : hasAnyReveal ? (
+          <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground pt-1">
+            <Eye className="w-3.5 h-3.5" />
+            Toucher la carte ou Espace pour révéler
+          </div>
+        ) : null}
+      </button>
+
+      {/* Actionable link when brief is missing/unreadable */}
+      {!hasAnyReveal && (
+        <Link
+          href={`/brief/${current.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full flex items-center justify-center gap-2 h-10 border border-dashed border-wrong/30 rounded-lg text-sm text-wrong hover:bg-wrong/5 transition-colors"
+        >
+          <Eye className="w-4 h-4" />
+          {briefMissing ? "Brief non généré — ouvrir" : "Brief illisible — ouvrir"}
+        </Link>
       )}
 
       {/* Actions */}
