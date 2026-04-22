@@ -108,6 +108,28 @@ const CANONICAL_MNEMONICS: readonly (readonly string[])[] = [
 
   // ── Divers / Règles nommées ─────────────────────────────────────
   ["Rule of 3s", "Rule of 3", "Rule of Threes"],
+
+  // ── ESR EPOS — European Congress of Radiology poster (2024) ─────
+  // Curated radiology mnemonic poster with CT/MRI case illustrations.
+  ["Blood Can Be Very Bad"],
+  ["VITAMIN", "VITAMIN C", "VITAMIN CD", "VITAMIN C&D", "VITAMIN CDEF"],
+  ["PACHI MENINGES", "PACHI"],
+  ["LAMP CAMP"],
+  ["SEAL"],
+  ["Normal BIRTH", "BIRTH"],
+  ["STURGE CAPS"],
+  ["Jefferson Bit Off A Hangman's Thumb", "Jefferson Bit Off A Hangmans Thumb"],
+  ["SMALL MEN"],
+  ["CRESP"],
+  ["ABCDEFGHI"],
+  ["CARPETS"],
+  ["Thanks So Much"],
+  ["HALT"],
+  ["CHIMP"],
+  ["Grovelling Surgeons Expect Immediate CT Scans", "Grovelling Surgeons"],
+  ["ChIPS", "CHIPS"],
+  ["L SHAPE", "L-SHAPE"],
+  ["PROMS"],
 ];
 
 function normalize(name: string): string {
