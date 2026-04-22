@@ -15,8 +15,9 @@ import {
   recentlyTestedEntities,
   formatRelativeDate,
 } from "@/lib/stats";
-import { ArrowLeft, Check, AlertTriangle, XCircle, TrendingUp, TrendingDown, BookOpen, Zap, Loader2, Sparkles, FileSearch, ChevronRight } from "lucide-react";
+import { ArrowLeft, Check, AlertTriangle, XCircle, TrendingUp, TrendingDown, BookOpen, Zap, Loader2, Sparkles, FileSearch, ChevronRight, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import { cleanupInvalidMnemonics, CANONICAL_MNEMONIC_NAMES } from "@/lib/mnemonic-whitelist";
 
 const RESULT_ICON = {
   correct: { Icon: Check, color: "text-correct" },
@@ -34,6 +35,7 @@ export default function StatsPage() {
   const [loading, setLoading] = useState(true);
   const [backfilling, setBackfilling] = useState(false);
   const [lastBackfill, setLastBackfill] = useState<{ vital: number; mnemonic: number; evaluated: number } | null>(null);
+  const [cleaningMnemos, setCleaningMnemos] = useState(false);
 
   useEffect(() => {
     if (!userLoading && !user) router.push("/login");
@@ -72,6 +74,30 @@ export default function StatsPage() {
       setEntities(e);
     } catch (err) {
       console.error("Reload entities error:", err);
+    }
+  };
+
+  const handleCleanupMnemos = async () => {
+    if (!user || cleaningMnemos) return;
+    setCleaningMnemos(true);
+    try {
+      const { cleared, rows } = await cleanupInvalidMnemonics(supabase, user.id);
+      if (cleared === 0) {
+        toast.success("Aucune mnémonique hallucinée détectée");
+      } else {
+        const preview = rows
+          .slice(0, 3)
+          .map((r) => `${r.entity_name} (${r.mnemonic_name ?? "—"})`)
+          .join(", ");
+        const suffix = rows.length > 3 ? `, +${rows.length - 3} autres` : "";
+        toast.success(`${cleared} mnémo${cleared > 1 ? "s" : ""} hors whitelist effacée${cleared > 1 ? "s" : ""} : ${preview}${suffix}`);
+      }
+      await reloadEntities();
+    } catch (err) {
+      console.error("Cleanup mnemonics error:", err);
+      toast.error("Nettoyage impossible");
+    } finally {
+      setCleaningMnemos(false);
     }
   };
 
@@ -166,6 +192,33 @@ export default function StatsPage() {
                   {lastBackfill.mnemonic} avec mnémo
                 </p>
               )}
+
+              <div className="pt-2 border-t border-border/50 space-y-2">
+                <div className="flex items-start gap-2">
+                  <ShieldCheck className="w-4 h-4 text-teal flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-muted-foreground">
+                    Whitelist active : {CANONICAL_MNEMONIC_NAMES.length} mnémos validées contre
+                    Crack the Core + Core Radiology. Toute mnémo hors liste est rejetée.
+                  </p>
+                </div>
+                <button
+                  onClick={handleCleanupMnemos}
+                  disabled={cleaningMnemos}
+                  className="w-full flex items-center justify-center gap-2 h-9 border border-teal/30 text-teal rounded-lg text-xs font-medium hover:bg-teal/5 transition-colors disabled:opacity-50"
+                >
+                  {cleaningMnemos ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Nettoyage en cours…
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      Nettoyer les mnémos hallucinées
+                    </>
+                  )}
+                </button>
+              </div>
             </section>
 
             {/* Audit briefs entry point */}

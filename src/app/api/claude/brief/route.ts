@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { callClaude, parseClaudeJSON, queueBriefGeneration } from '@/lib/claude'
 import type { QAPair } from '@/lib/types'
 import { createClient } from '@/lib/supabase/server'
+import { isValidMnemonic } from '@/lib/mnemonic-whitelist'
 
 interface BriefMeta {
   has_mnemonic: boolean
@@ -23,9 +24,24 @@ function parseBriefResponse(response: string): ParsedBrief {
   if (metaMatch) {
     try {
       const raw = parseClaudeJSON<Partial<BriefMeta> & { mnemonic_name?: string | null }>(metaMatch[1])
+      const claimedName =
+        typeof raw.mnemonic_name === 'string' && raw.mnemonic_name.trim().length > 0
+          ? raw.mnemonic_name.trim()
+          : null
+      const claudeSaysMnemonic = raw.has_mnemonic === true
+      // Whitelist gate: only trust Claude's mnemonic claim if the name is in
+      // the user's validated list (Crack the Core + Core Radiology). Blocks
+      // hallucinated acronyms like "CRIMES for buccal masses" regardless of
+      // Claude's confidence.
+      const accepted = claudeSaysMnemonic && isValidMnemonic(claimedName)
+      if (claudeSaysMnemonic && !accepted) {
+        console.warn(
+          `[brief] Rejecting non-whitelisted mnemonic "${claimedName}" — not in validated list.`
+        )
+      }
       meta = {
-        has_mnemonic: raw.has_mnemonic === true,
-        mnemonic_name: typeof raw.mnemonic_name === 'string' && raw.mnemonic_name.trim().length > 0 ? raw.mnemonic_name.trim() : null,
+        has_mnemonic: accepted,
+        mnemonic_name: accepted ? claimedName : null,
         is_critical: raw.is_critical === true,
       }
     } catch {

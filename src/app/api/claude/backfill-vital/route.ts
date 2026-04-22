@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { callClaude, parseClaudeJSON } from '@/lib/claude'
 import { createClient } from '@/lib/supabase/server'
+import { isValidMnemonic } from '@/lib/mnemonic-whitelist'
 
 // Allow longer execution for the batched backfill (up to ~5 min on Vercel Pro).
 export const maxDuration = 300
@@ -190,6 +191,17 @@ export async function POST(request: NextRequest) {
           mnemonicName = null
         }
         if (cand.brief_mnemonic_is_negated) {
+          hasMnemonic = false
+          mnemonicName = null
+        }
+
+        // Whitelist gate: reject any mnemonic that is not in the user's
+        // validated list (extracted from Crack the Core + Core Radiology).
+        // Prevents hallucinated acronyms like "CRIMES for buccal masses".
+        if (hasMnemonic && !isValidMnemonic(mnemonicName)) {
+          console.warn(
+            `Backfill override: entity ${cand.id} (${cand.name}) mnemonic "${mnemonicName}" not in whitelist. Forcing has_mnemonic=false.`
+          )
           hasMnemonic = false
           mnemonicName = null
         }
