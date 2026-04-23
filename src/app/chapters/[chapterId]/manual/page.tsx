@@ -3,12 +3,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, BookOpen, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, BookOpen, Loader2, Sparkles, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
-import type { Chapter, Topic } from "@/lib/types";
+import { createEntity, getSources, getEntities } from "@/lib/supabase/queries";
+import type { Chapter, Topic, EntityType, Source } from "@/lib/types";
 import { parseSections } from "@/lib/brief-parsing";
+
+interface ProposedEntity {
+  name: string;
+  section_anchor: string;
+  entity_type: EntityType;
+  reason?: string;
+  selected: boolean;
+  duplicate: boolean;
+}
 
 export default function ChapterManualPage() {
   const params = useParams();
@@ -23,6 +33,11 @@ export default function ChapterManualPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [selectedSourceId, setSelectedSourceId] = useState<string>("");
+  const [extracting, setExtracting] = useState(false);
+  const [proposals, setProposals] = useState<ProposedEntity[] | null>(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (!userLoading && !user) router.push("/login");
@@ -32,15 +47,21 @@ export default function ChapterManualPage() {
     if (!user) return;
     (async () => {
       try {
-        const { data: ch, error: chErr } = await supabase
-          .from("chapters")
-          .select("*, topic:topics(*)")
-          .eq("id", chapterId)
-          .single();
-        if (chErr) throw chErr;
-        setChapter(ch as Chapter);
-        setTopic((ch as Chapter).topic ?? null);
-        setContent((ch as Chapter).manual_content ?? "");
+        const [chapterRes, sourcesList] = await Promise.all([
+          supabase
+            .from("chapters")
+            .select("*, topic:topics(*)")
+            .eq("id", chapterId)
+            .single(),
+          getSources(supabase),
+        ]);
+        if (chapterRes.error) throw chapterRes.error;
+        const ch = chapterRes.data as Chapter;
+        setChapter(ch);
+        setTopic(ch.topic ?? null);
+        setContent(ch.manual_content ?? "");
+        setSources(sourcesList);
+        if (sourcesList.length > 0) setSelectedSourceId(sourcesList[0].id);
       } catch (err) {
         console.error("Load chapter error:", err);
         toast.error("Chapitre introuvable");
@@ -73,6 +94,106 @@ export default function ChapterManualPage() {
       setSaving(false);
     }
   };
+
+  const handleExtract = async () => {
+    if (!chapter || !user || extracting || !content.trim()) return;
+    if (dirty) {
+      toast.message("Enregistre le manuel avant d'extraire les entités");
+      return;
+    }
+    setExtracting(true);
+    try {
+      const anchors = sections.map((s) => s.title);
+      const res = await fetch("/api/claude/extract-entities-from-manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          manual_content: content,
+          chapter_name: chapter.name,
+          topic_name: topic?.name,
+          section_anchors: anchors,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        toast.error(data.error || "Extraction impossible");
+        return;
+      }
+      // Flag duplicates against existing entities for this user+chapter
+      const existing = await getEntities(supabase, user.id);
+      const existingNames = new Set(
+        existing
+          .filter((e) => e.chapter_id === chapter.id)
+          .map((e) => e.name.trim().toLowerCase())
+      );
+      const proposed: ProposedEntity[] = (data.entities as ProposedEntity[]).map((e) => {
+        const duplicate = existingNames.has(e.name.trim().toLowerCase());
+        return { ...e, duplicate, selected: !duplicate };
+      });
+      setProposals(proposed);
+      toast.success(`${proposed.length} entité${proposed.length > 1 ? "s" : ""} proposée${proposed.length > 1 ? "s" : ""}`);
+    } catch (err) {
+      console.error("Extract entities error:", err);
+      toast.error("Extraction impossible");
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const handleBulkCreate = async () => {
+    if (!chapter || !user || !proposals || creating) return;
+    if (!selectedSourceId) {
+      toast.error("Sélectionne une source");
+      return;
+    }
+    const toCreate = proposals.filter((p) => p.selected && !p.duplicate);
+    if (toCreate.length === 0) {
+      toast.message("Rien à créer");
+      return;
+    }
+    setCreating(true);
+    let created = 0;
+    try {
+      for (const p of toCreate) {
+        const entity = await createEntity(supabase, {
+          user_id: user.id,
+          chapter_id: chapter.id,
+          name: p.name,
+          entity_type: p.entity_type,
+          source_id: selectedSourceId,
+        });
+        // Second call to set the manual_section_anchor — createEntity doesn't
+        // know about it, and exposing it in the helper signature would leak
+        // the chapter-manual concept into a generic function.
+        await supabase
+          .from("entities")
+          .update({ manual_section_anchor: p.section_anchor })
+          .eq("id", entity.id);
+        created++;
+      }
+      toast.success(`${created} entité${created > 1 ? "s" : ""} créée${created > 1 ? "s" : ""} et liée${created > 1 ? "s" : ""}`);
+      setProposals(null);
+    } catch (err) {
+      console.error("Bulk create entities error:", err);
+      toast.error(`${created} créée(s), puis erreur — réessaye pour les suivantes`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const toggleProposal = (idx: number) => {
+    setProposals((prev) =>
+      prev ? prev.map((p, i) => (i === idx ? { ...p, selected: !p.selected } : p)) : prev
+    );
+  };
+
+  const updateProposal = (idx: number, patch: Partial<ProposedEntity>) => {
+    setProposals((prev) =>
+      prev ? prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)) : prev
+    );
+  };
+
+  const selectedCount = proposals ? proposals.filter((p) => p.selected && !p.duplicate).length : 0;
 
   if (loading || userLoading) {
     return (
@@ -180,10 +301,152 @@ export default function ChapterManualPage() {
                 </li>
               ))}
             </ul>
-            <p className="text-[11px] text-muted-foreground">
-              Une entité pourra être liée à l'une de ces sections depuis sa page
-              de brief (prochaine itération).
-            </p>
+          </section>
+        )}
+
+        {sections.length > 0 && !proposals && (
+          <section className="space-y-2">
+            <button
+              onClick={handleExtract}
+              disabled={extracting || dirty || !content.trim()}
+              className="w-full flex items-center justify-center gap-2 h-11 bg-amber/10 border border-amber/30 text-amber rounded-xl text-sm font-medium hover:bg-amber/20 transition-colors disabled:opacity-50"
+            >
+              {extracting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Extraction en cours… (10-30s)
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  Créer des entités depuis ce manuel
+                </>
+              )}
+            </button>
+            {dirty && (
+              <p className="text-[11px] text-muted-foreground text-center">
+                Enregistre d'abord le manuel pour activer l'extraction.
+              </p>
+            )}
+          </section>
+        )}
+
+        {proposals && (
+          <section className="space-y-3 bg-card border border-amber/30 rounded-xl p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <h2 className="text-sm font-semibold text-foreground">
+                  {proposals.length} entité{proposals.length > 1 ? "s" : ""} proposée{proposals.length > 1 ? "s" : ""}
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Décoche les superflues. Ajuste section ou type si besoin. Les doublons (déjà présents dans ce chapitre) sont grisés.
+                </p>
+              </div>
+              <button
+                onClick={() => setProposals(null)}
+                className="p-1 rounded-lg hover:bg-background/50 text-muted-foreground"
+                aria-label="Fermer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground flex-shrink-0">Source :</label>
+              <select
+                value={selectedSourceId}
+                onChange={(e) => setSelectedSourceId(e.target.value)}
+                className="flex-1 bg-background border border-border rounded-lg px-2 py-1.5 text-xs text-foreground"
+              >
+                {sources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <ul className="divide-y divide-border border border-border rounded-lg bg-background">
+              {proposals.map((p, i) => (
+                <li
+                  key={i}
+                  className={`p-3 ${p.duplicate ? "opacity-50" : ""}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <button
+                      onClick={() => !p.duplicate && toggleProposal(i)}
+                      disabled={p.duplicate}
+                      className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center mt-0.5 ${
+                        p.selected && !p.duplicate
+                          ? "bg-teal border-teal"
+                          : "bg-background border-border"
+                      }`}
+                      aria-label={p.selected ? "Désélectionner" : "Sélectionner"}
+                    >
+                      {p.selected && !p.duplicate && <Check className="w-3 h-3 text-white" />}
+                    </button>
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <input
+                        type="text"
+                        value={p.name}
+                        onChange={(e) => updateProposal(i, { name: e.target.value })}
+                        disabled={p.duplicate}
+                        className="w-full bg-background border border-border rounded-md px-2 py-1 text-sm text-foreground"
+                      />
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={p.section_anchor}
+                          onChange={(e) => updateProposal(i, { section_anchor: e.target.value })}
+                          disabled={p.duplicate}
+                          className="flex-1 bg-background border border-border rounded-md px-2 py-1 text-xs text-foreground min-w-0"
+                        >
+                          {sections.map((s) => (
+                            <option key={s.title} value={s.title}>
+                              {s.title}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={p.entity_type}
+                          onChange={(e) => updateProposal(i, { entity_type: e.target.value as EntityType })}
+                          disabled={p.duplicate}
+                          className="bg-background border border-border rounded-md px-2 py-1 text-xs text-foreground"
+                        >
+                          <option value="single_diagnosis">Diagnostic</option>
+                          <option value="ddx_pair">DDx</option>
+                          <option value="concept">Concept</option>
+                          <option value="protocol">Protocole</option>
+                        </select>
+                      </div>
+                      {p.duplicate && (
+                        <p className="text-[10px] text-amber">Déjà présente dans ce chapitre</p>
+                      )}
+                      {!p.duplicate && p.reason && (
+                        <p className="text-[10px] text-muted-foreground italic">{p.reason}</p>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <button
+              onClick={handleBulkCreate}
+              disabled={creating || selectedCount === 0}
+              className="w-full flex items-center justify-center gap-2 h-10 bg-teal text-white rounded-lg text-sm font-medium hover:bg-teal-light transition-colors disabled:opacity-50"
+            >
+              {creating ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Création en cours…
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  Créer et lier {selectedCount} entité{selectedCount > 1 ? "s" : ""}
+                </>
+              )}
+            </button>
           </section>
         )}
 
