@@ -38,6 +38,10 @@ export default function ChapterManualPage() {
   const [extracting, setExtracting] = useState(false);
   const [proposals, setProposals] = useState<ProposedEntity[] | null>(null);
   const [creating, setCreating] = useState(false);
+  const [appendText, setAppendText] = useState("");
+  const [appendSource, setAppendSource] = useState("");
+  const [appending, setAppending] = useState(false);
+  const [confirmingReplace, setConfirmingReplace] = useState(false);
 
   useEffect(() => {
     if (!userLoading && !user) router.push("/login");
@@ -86,12 +90,43 @@ export default function ChapterManualPage() {
         .eq("id", chapter.id);
       if (error) throw error;
       setDirty(false);
+      setConfirmingReplace(false);
       toast.success(`Manuel enregistré · ${sections.length} section${sections.length > 1 ? "s" : ""}`);
     } catch (err) {
       console.error("Save manual error:", err);
       toast.error("Enregistrement impossible");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAppend = async () => {
+    if (!chapter || appending) return;
+    const trimmed = appendText.trim();
+    if (!trimmed) {
+      toast.error("Rien à ajouter");
+      return;
+    }
+    const sourceLabel = appendSource.trim() || "Source non précisée";
+    const today = new Date().toISOString().slice(0, 10);
+    const banner = `\n\n## Source : ${sourceLabel} — ${today}\n\n`;
+    const existing = content.trim();
+    const newContent = existing ? existing + banner + trimmed : `## Source : ${sourceLabel} — ${today}\n\n${trimmed}`;
+    setAppending(true);
+    try {
+      const { error } = await supabase
+        .from("chapters")
+        .update({ manual_content: newContent })
+        .eq("id", chapter.id);
+      if (error) throw error;
+      setContent(newContent);
+      setAppendText("");
+      toast.success(`Ajouté · source "${sourceLabel}"`);
+    } catch (err) {
+      console.error("Append source error:", err);
+      toast.error("Ajout impossible");
+    } finally {
+      setAppending(false);
     }
   };
 
@@ -255,17 +290,58 @@ export default function ChapterManualPage() {
           <div className="flex items-start gap-3 bg-card border border-teal/20 rounded-xl p-4">
             <BookOpen className="w-5 h-5 text-teal flex-shrink-0 mt-0.5" />
             <div className="text-xs text-muted-foreground leading-relaxed">
-              Colle ici une référence long-format du chapitre (doc Claude desktop,
-              extrait de textbook, notes consolidées). Utilise <code className="text-foreground">## Titre</code> pour
-              séparer les sections — chaque section devient une ancre qu'une
-              entité peut référencer pour ses briefs et son drill.
+              Pour ajouter progressivement des sources (Rad Primer, Aunt Minnie,
+              Anales, etc.), utilise la carte "Ajouter une source" ci-dessous —
+              chaque ajout est préfixé d'une bannière <code className="text-foreground">## Source : X</code>.
+              L'éditeur plein texte en bas sert au remplacement total (destructif).
             </div>
           </div>
         </section>
 
+        {/* Append-only card — primary interaction */}
+        <section className="bg-card border border-teal/30 rounded-xl p-4 space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Ajouter une source</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Le nouveau contenu est ajouté à la fin du manuel, préfixé d'une bannière de source.
+            </p>
+          </div>
+          <input
+            type="text"
+            value={appendSource}
+            onChange={(e) => setAppendSource(e.target.value)}
+            placeholder="Source (ex: Rad Primer, Aunt Minnie, ESR EPOS, Crack the Core…)"
+            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-teal/30"
+          />
+          <textarea
+            value={appendText}
+            onChange={(e) => setAppendText(e.target.value)}
+            placeholder={"Colle ici la nouvelle matière.\nUtilise ## Titre pour créer une section cherchable."}
+            className="w-full min-h-[30vh] bg-background border border-border rounded-lg p-3 text-sm text-foreground font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-teal/30"
+          />
+          <button
+            onClick={handleAppend}
+            disabled={appending || !appendText.trim()}
+            className="w-full flex items-center justify-center gap-1.5 h-10 bg-teal text-white rounded-lg text-sm font-medium hover:bg-teal-light transition-colors disabled:opacity-40"
+          >
+            {appending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Ajout en cours…
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Ajouter à la fin du manuel
+              </>
+            )}
+          </button>
+        </section>
+
+        {/* Full edit / replace mode — below append card, clearly labelled destructive */}
         <section className="space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Markdown</span>
+            <span>Édition complète (destructif)</span>
             <span>
               {wordCount.toLocaleString("fr-CH")} mots · {charCount.toLocaleString("fr-CH")} car. ·{" "}
               {sections.length} section{sections.length > 1 ? "s" : ""}

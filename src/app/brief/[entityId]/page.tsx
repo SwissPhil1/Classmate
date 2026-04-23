@@ -4,20 +4,40 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
-import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities, getEntityImages, createEntityImage, deleteEntityImage, updateEntityImage, setEntityPriority } from "@/lib/supabase/queries";
+import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities, getEntityImages, createEntityImage, deleteEntityImage, updateEntityImage, setEntityPriority, createEntityEvent, getEntityEvents, restoreBriefPrevious } from "@/lib/supabase/queries";
 import { extractManualSection } from "@/lib/brief-parsing";
 import { ManualSectionLink } from "@/components/brief/manual-section-link";
+import { ClaudeDiffPreview } from "@/components/brief/claude-diff-preview";
 import { uploadEntityImage, getImageUrl, deleteStorageImage } from "@/lib/supabase/storage";
-import type { Entity, Brief, EntityImage, ImageModality } from "@/lib/types";
+import type { Entity, Brief, EntityImage, ImageModality, EntityEvent } from "@/lib/types";
 import { BriefContent } from "@/components/brief/brief-content";
 import { ReferenceTextEditor } from "@/components/brief/reference-text-editor";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { ImageGallery } from "@/components/ui/image-gallery";
-import { ArrowLeft, ExternalLink, ImagePlus, ChevronDown, ChevronRight, Zap } from "lucide-react";
+import { ArrowLeft, ExternalLink, ImagePlus, ChevronDown, ChevronRight, Zap, Sparkles, History, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import Link from "next/link";
+
+function eventKindLabel(kind: EntityEvent["kind"]): string {
+  switch (kind) {
+    case "reference_added":
+      return "Référence ajoutée";
+    case "claude_regenerated":
+      return "Brief régénéré (Claude)";
+    case "claude_merged":
+      return "Brief intégré (Claude merge)";
+    case "anchor_linked":
+      return "Lié à une section du manuel";
+    case "anchor_unlinked":
+      return "Lien à la section retiré";
+    case "brief_reverted":
+      return "Version précédente restaurée";
+    default:
+      return kind;
+  }
+}
 
 export default function BriefPage() {
   const params = useParams();
@@ -40,6 +60,11 @@ export default function BriefPage() {
   const [notesSaving, setNotesSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showImageUpload, setShowImageUpload] = useState(false);
+  const [integrating, setIntegrating] = useState(false);
+  const [pendingMerge, setPendingMerge] = useState<{ before: string; after: string; changedRatio: number } | null>(null);
+  const [events, setEvents] = useState<EntityEvent[]>([]);
+  const [eventsOpen, setEventsOpen] = useState(false);
+  const [canUndo, setCanUndo] = useState(false);
 
   const isParent = children.length > 0;
 
@@ -49,13 +74,16 @@ export default function BriefPage() {
         const e = await getEntity(supabase, entityId);
         setEntity(e);
         setNotes(e.notes || "");
-        const [b, ch, imgs] = await Promise.all([
+        const [b, ch, imgs, evts] = await Promise.all([
           getBrief(supabase, entityId),
           getChildEntities(supabase, entityId),
           getEntityImages(supabase, entityId),
+          getEntityEvents(supabase, entityId),
         ]);
         setBrief(b);
         setChildren(ch);
+        setEvents(evts);
+        setCanUndo(!!b?.content_previous);
         // Attach signed URLs to images (works with private buckets)
         const imgsWithUrls = await Promise.all(
           imgs.map(async (img) => ({
@@ -160,6 +188,100 @@ export default function BriefPage() {
     } catch (err) {
       console.error("Priority toggle error:", err);
       toast.error("Impossible de mettre à jour la priorité");
+    }
+  };
+
+  const handleIntegrate = async () => {
+    if (!entity || !brief || integrating) return;
+    const manualSection = extractManualSection(
+      entity.chapter?.manual_content,
+      entity.manual_section_anchor
+    );
+    const newMaterial = manualSection ?? entity.reference_text ?? "";
+    if (!newMaterial.trim()) {
+      toast.error("Aucune matière à intégrer (ni section de manuel liée, ni reference_text)");
+      return;
+    }
+    setIntegrating(true);
+    try {
+      const res = await fetch("/api/claude/merge-brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          existing_content: brief.content,
+          new_material: newMaterial,
+          entity_name: entity.name,
+          source_label: entity.manual_section_anchor ?? undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        toast.error(data.error || "Merge impossible");
+        return;
+      }
+      setPendingMerge({
+        before: brief.content,
+        after: data.merged_content,
+        changedRatio: data.changed_ratio ?? 0,
+      });
+    } catch (err) {
+      console.error("Integrate error:", err);
+      toast.error("Merge impossible");
+    } finally {
+      setIntegrating(false);
+    }
+  };
+
+  const handleAcceptMerge = async (finalContent: string) => {
+    if (!entity || !brief || !user || !pendingMerge) return;
+    try {
+      // Store previous content for undo, then update.
+      const { error } = await supabase
+        .from("briefs")
+        .update({
+          content: finalContent,
+          content_previous: brief.content,
+        })
+        .eq("entity_id", entity.id);
+      if (error) throw error;
+      setBrief({ ...brief, content: finalContent, content_previous: brief.content });
+      setCanUndo(true);
+      await createEntityEvent(supabase, {
+        entity_id: entity.id,
+        user_id: user.id,
+        kind: "claude_merged",
+        source_label: entity.manual_section_anchor,
+        diff_summary: `${Math.round(pendingMerge.changedRatio * 100)}% modifié`,
+      });
+      setEvents(await getEntityEvents(supabase, entity.id));
+      setPendingMerge(null);
+      toast.success("Intégré · Annuler disponible ci-dessous");
+    } catch (err) {
+      console.error("Accept merge error:", err);
+      toast.error("Sauvegarde impossible");
+    }
+  };
+
+  const handleRejectMerge = () => {
+    setPendingMerge(null);
+  };
+
+  const handleUndo = async () => {
+    if (!entity || !user || !canUndo) return;
+    try {
+      const { content, content_previous } = await restoreBriefPrevious(supabase, entity.id);
+      setBrief((prev) => (prev ? { ...prev, content, content_previous } : prev));
+      setCanUndo(!!content_previous);
+      await createEntityEvent(supabase, {
+        entity_id: entity.id,
+        user_id: user.id,
+        kind: "brief_reverted",
+      });
+      setEvents(await getEntityEvents(supabase, entity.id));
+      toast.success("Version précédente restaurée");
+    } catch (err) {
+      console.error("Undo error:", err);
+      toast.error(err instanceof Error ? err.message : "Annulation impossible");
     }
   };
 
@@ -480,8 +602,102 @@ export default function BriefPage() {
                   manual_section_anchor: anchor,
                 } as Partial<Entity>);
                 setEntity({ ...entity, manual_section_anchor: anchor });
+                if (user) {
+                  await createEntityEvent(supabase, {
+                    entity_id: entity.id,
+                    user_id: user.id,
+                    kind: anchor ? "anchor_linked" : "anchor_unlinked",
+                    source_label: anchor,
+                  });
+                  setEvents(await getEntityEvents(supabase, entity.id));
+                }
               }}
             />
+          </div>
+        )}
+
+        {/* Claude integrate — non-destructive merge of linked section / reference_text */}
+        {brief && (
+          <div className="mt-4 flex items-center gap-2 flex-wrap">
+            <Button
+              onClick={handleIntegrate}
+              disabled={integrating || !!pendingMerge}
+              className="bg-teal/10 border border-teal/30 text-teal hover:bg-teal/20"
+              variant="ghost"
+            >
+              <Sparkles className="w-4 h-4 mr-1.5" />
+              {integrating ? "Analyse en cours…" : "Intégrer avec Claude (non-destructif)"}
+            </Button>
+            {canUndo && (
+              <Button
+                onClick={handleUndo}
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <Undo2 className="w-4 h-4 mr-1.5" />
+                Annuler la dernière modification
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* Diff preview after a merge proposal */}
+        {pendingMerge && (
+          <div className="mt-4">
+            <ClaudeDiffPreview
+              before={pendingMerge.before}
+              after={pendingMerge.after}
+              changedRatio={pendingMerge.changedRatio}
+              onAccept={handleAcceptMerge}
+              onReject={handleRejectMerge}
+            />
+          </div>
+        )}
+
+        {/* Activity log — accordion */}
+        {events.length > 0 && (
+          <div className="mt-6 bg-card border border-border rounded-xl">
+            <button
+              onClick={() => setEventsOpen((o) => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 text-sm text-foreground hover:bg-background/50 transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                <History className="w-4 h-4 text-muted-foreground" />
+                Historique ({events.length})
+              </span>
+              {eventsOpen ? (
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              )}
+            </button>
+            {eventsOpen && (
+              <ul className="border-t border-border divide-y divide-border">
+                {events.map((e) => (
+                  <li key={e.id} className="px-4 py-2 text-xs">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-foreground">
+                        {eventKindLabel(e.kind)}
+                        {e.source_label && (
+                          <span className="text-muted-foreground"> · {e.source_label}</span>
+                        )}
+                        {e.diff_summary && (
+                          <span className="text-muted-foreground"> · {e.diff_summary}</span>
+                        )}
+                      </span>
+                      <span className="text-muted-foreground flex-shrink-0">
+                        {new Date(e.created_at).toLocaleString("fr-CH", {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

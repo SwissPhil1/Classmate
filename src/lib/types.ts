@@ -88,6 +88,24 @@ export interface EntityImage {
   url?: string // derived signed URL, not in DB
 }
 
+export type EntityEventKind =
+  | 'reference_added'
+  | 'claude_regenerated'
+  | 'claude_merged'
+  | 'anchor_linked'
+  | 'anchor_unlinked'
+  | 'brief_reverted'
+
+export interface EntityEvent {
+  id: string
+  entity_id: string
+  user_id: string
+  kind: EntityEventKind
+  source_label: string | null
+  diff_summary: string | null
+  created_at: string
+}
+
 export interface QAPair {
   question: string
   model_answer: string
@@ -98,6 +116,10 @@ export interface Brief {
   id: string
   entity_id: string
   content: string
+  /** Snapshot of `content` before the most recent Claude-driven change.
+   *  Populated on every merge/regen so the user can undo. Null when the
+   *  brief has never been Claude-modified. */
+  content_previous: string | null
   qa_pairs: QAPair[]
   difficulty_level: DifficultyLevel
   created_at: string

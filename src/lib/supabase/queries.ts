@@ -2,7 +2,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import type {
   Entity, EntityImage, Topic, Chapter, Source, Brief, Session, SessionState,
   TestResultRecord, UserSettings, QueueItem, EntityType, SessionType, ExamComponent,
-  TopicHealth, HealthStatus,
+  TopicHealth, HealthStatus, EntityEvent, EntityEventKind,
 } from '@/lib/types'
 import { chapterHealth } from '@/lib/spaced-repetition'
 
@@ -642,4 +642,68 @@ export async function deleteEntityImage(
     .delete()
     .eq('id', imageId)
   if (error) throw error
+}
+
+// ─── Entity activity log + undo ────────────────────────────
+export async function createEntityEvent(
+  supabase: SupabaseClient,
+  params: {
+    entity_id: string
+    user_id: string
+    kind: EntityEventKind
+    source_label?: string | null
+    diff_summary?: string | null
+  }
+): Promise<void> {
+  const { error } = await supabase.from('entity_events').insert({
+    entity_id: params.entity_id,
+    user_id: params.user_id,
+    kind: params.kind,
+    source_label: params.source_label ?? null,
+    diff_summary: params.diff_summary ?? null,
+  })
+  if (error) throw error
+}
+
+export async function getEntityEvents(
+  supabase: SupabaseClient,
+  entityId: string,
+  limit = 30
+): Promise<EntityEvent[]> {
+  const { data, error } = await supabase
+    .from('entity_events')
+    .select('*')
+    .eq('entity_id', entityId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return (data ?? []) as EntityEvent[]
+}
+
+/**
+ * Swap `briefs.content` with `briefs.content_previous` so the user can undo
+ * the latest Claude-driven change. Ping-pong: after the swap, the old content
+ * becomes the new `content_previous`, allowing a redo.
+ */
+export async function restoreBriefPrevious(
+  supabase: SupabaseClient,
+  entityId: string
+): Promise<{ content: string; content_previous: string | null }> {
+  const { data: brief, error: fetchErr } = await supabase
+    .from('briefs')
+    .select('content, content_previous')
+    .eq('entity_id', entityId)
+    .single()
+  if (fetchErr) throw fetchErr
+  if (!brief.content_previous) {
+    throw new Error('Aucune version précédente disponible')
+  }
+  const newContent = brief.content_previous as string
+  const newPrevious = brief.content as string
+  const { error: updErr } = await supabase
+    .from('briefs')
+    .update({ content: newContent, content_previous: newPrevious })
+    .eq('entity_id', entityId)
+  if (updErr) throw updErr
+  return { content: newContent, content_previous: newPrevious }
 }
