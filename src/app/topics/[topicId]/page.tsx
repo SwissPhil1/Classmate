@@ -11,7 +11,7 @@ import {
   updateEntity,
   createEntity,
 } from "@/lib/supabase/queries";
-import type { Topic, Entity, EntityType } from "@/lib/types";
+import type { Topic, Entity, EntityType, Chapter } from "@/lib/types";
 import {
   ArrowLeft,
   Trash2,
@@ -24,6 +24,7 @@ import {
   Unlink,
   Plus,
   FolderPlus,
+  BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +53,7 @@ export default function TopicDetailPage() {
   const topicId = params.topicId as string;
 
   const [topic, setTopic] = useState<Topic | null>(null);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -74,6 +76,7 @@ export default function TopicDetailPage() {
     try {
       const { topic: t, chapters: ch } = await getTopicWithChapters(supabase, topicId);
       setTopic(t);
+      setChapters(ch);
 
       const ents = await getEntities(supabase, user.id);
       const chapterIds = new Set(ch.map((c) => c.id));
@@ -390,6 +393,34 @@ export default function TopicDetailPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-3">
+        {chapters.length > 0 && (
+          <section className="space-y-1.5 pb-2">
+            <h2 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+              Manuels par chapitre
+            </h2>
+            <div className="bg-card border border-border rounded-xl divide-y divide-border">
+              {chapters.map((ch) => {
+                const hasManual = !!(ch.manual_content && ch.manual_content.trim().length > 0);
+                return (
+                  <Link
+                    key={ch.id}
+                    href={`/chapters/${ch.id}/manual`}
+                    className="flex items-center gap-3 px-4 py-2.5 hover:bg-background/50 transition-colors"
+                  >
+                    <BookOpen className={`w-4 h-4 flex-shrink-0 ${hasManual ? "text-teal" : "text-muted-foreground"}`} />
+                    <span className="flex-1 min-w-0 text-sm text-foreground truncate">
+                      {ch.name}
+                    </span>
+                    <span className={`text-[10px] uppercase tracking-wider ${hasManual ? "text-teal" : "text-muted-foreground"}`}>
+                      {hasManual ? "Manuel" : "Vide"}
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        )}
         {entities.length === 0 ? (
           <div className="text-center py-12 space-y-3">
             <p className="text-muted-foreground">Aucune entité dans ce thème</p>

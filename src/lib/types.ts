@@ -23,6 +23,11 @@ export interface Chapter {
   topic_id: string
   name: string
   topic?: Topic
+  /** Long-form markdown reference for the whole chapter (pasted by the user
+   *  from a textbook or a Claude-desktop batched write-up). Entities can link
+   *  to a specific `## Section` inside this manual via
+   *  `manual_section_anchor`. Null if the user hasn't populated one. */
+  manual_content?: string | null
 }
 
 export interface Source {
@@ -56,6 +61,11 @@ export interface Entity {
   image_url: string | null
   notes: string | null
   reference_text: string | null
+  /** Name of a `## Section` heading inside this entity's chapter `manual_content`.
+   *  When set, the brief generator and drill reveal use this section of the
+   *  chapter manual as the dominant reference instead of the legacy per-entity
+   *  reference_text. Null until the user (or auto-linker) wires it up. */
+  manual_section_anchor: string | null
   pretest_question: { type: string; question: string; model_answer: string; key_points: string[] } | null
   // Joined fields
   chapter?: Chapter
