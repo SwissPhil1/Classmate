@@ -5,6 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities, getEntityImages, createEntityImage, deleteEntityImage, updateEntityImage, setEntityPriority } from "@/lib/supabase/queries";
+import { extractManualSection } from "@/lib/brief-parsing";
+import { ManualSectionLink } from "@/components/brief/manual-section-link";
 import { uploadEntityImage, getImageUrl, deleteStorageImage } from "@/lib/supabase/storage";
 import type { Entity, Brief, EntityImage, ImageModality } from "@/lib/types";
 import { BriefContent } from "@/components/brief/brief-content";
@@ -84,6 +86,15 @@ export default function BriefPage() {
           }
         : {};
 
+      // Prefer the linked chapter-manual section over the legacy
+      // per-entity reference_text when both exist. This is the integration
+      // point for the chapter-manual workflow (itération 6).
+      const manualSection = extractManualSection(
+        entity.chapter?.manual_content,
+        entity.manual_section_anchor
+      );
+      const effectiveReference = manualSection ?? entity.reference_text;
+
       const res = await fetch("/api/claude/brief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -92,7 +103,7 @@ export default function BriefPage() {
           entity_type: entity.entity_type,
           chapter: entity.chapter?.name,
           topic: entity.chapter?.topic?.name,
-          reference_text: entity.reference_text,
+          reference_text: effectiveReference,
           notes: entity.notes,
           // Pass existing content so Claude preserves user edits
           existing_content: brief?.content || undefined,
@@ -453,6 +464,24 @@ export default function BriefPage() {
                 </Button>
               </>
             )}
+          </div>
+        )}
+
+        {/* Chapter-manual section linkage — dominant reference when set */}
+        {entity.chapter && (
+          <div className="mt-6">
+            <ManualSectionLink
+              chapterId={entity.chapter.id}
+              chapterName={entity.chapter.name}
+              manualContent={entity.chapter.manual_content}
+              currentAnchor={entity.manual_section_anchor}
+              onChange={async (anchor) => {
+                await updateEntity(supabase, entity.id, {
+                  manual_section_anchor: anchor,
+                } as Partial<Entity>);
+                setEntity({ ...entity, manual_section_anchor: anchor });
+              }}
+            />
           </div>
         )}
 

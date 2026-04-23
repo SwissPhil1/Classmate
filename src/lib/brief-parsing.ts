@@ -7,6 +7,25 @@ export interface Section {
 }
 
 /**
+ * Return the markdown body of the `## <anchor>` section inside a chapter's
+ * `manual_content`. Null when the manual is empty or no matching heading
+ * exists. Match is case-insensitive and whitespace-tolerant so minor edits
+ * to the heading don't silently break the linkage.
+ */
+export function extractManualSection(
+  manualContent: string | null | undefined,
+  anchor: string | null | undefined
+): string | null {
+  if (!manualContent || !anchor) return null;
+  const target = anchor.trim().toLowerCase();
+  if (!target) return null;
+  const sections = parseSections(manualContent);
+  const match = sections.find((s) => s.title.trim().toLowerCase() === target);
+  if (!match || !match.content.trim()) return null;
+  return match.content;
+}
+
+/**
  * Split a markdown brief into its `## ` sections. The first section (before
  * any header, or under the first header) is flagged `alwaysOpen` so consumers
  * that render collapsible accordions can keep it expanded by default.
