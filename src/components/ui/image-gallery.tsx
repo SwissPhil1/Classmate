@@ -126,9 +126,9 @@ export function ImageGallery({
                 </span>
               )}
 
-              {/* Hover/touch action overlay */}
+              {/* Action overlay — always visible on touch devices (iPad-first). */}
               {(onSave || onDelete || onReorder) && (
-                <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                <div className="absolute top-1.5 right-1.5 flex gap-1 transition-opacity">
                   {onReorder && index > 0 && (
                     <button
                       onClick={(e) => {
