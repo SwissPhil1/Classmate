@@ -176,25 +176,45 @@ function QuizSessionInner() {
         {(runMode !== "blitz" || revealed) && <div className="w-12" />}
       </header>
 
-      {/* Image area */}
-      <div className="flex-1 flex flex-col">
+      {/* Image + reveal panel — stacked on mobile, split on md+ */}
+      <div className="flex-1 flex flex-col md:flex-row min-h-0">
+        {/* Image stage */}
         {current && (
-          <ImageStage
+          <button
             key={current.image.id}
+            onClick={runMode === "standard" && !revealed ? () => setRevealed(true) : undefined}
+            className="flex-1 flex items-center justify-center bg-black p-2 min-h-0 md:max-h-screen"
+          >
+            <img
+              src={current.image.url || ""}
+              alt={current.image.display_name || "Image radiologique"}
+              className="max-h-full max-w-full object-contain"
+              draggable={false}
+            />
+          </button>
+        )}
+
+        {/* Reveal panel — slides from bottom on mobile, static panel on md+ */}
+        {current && (
+          <RevealPanel
             item={current}
             revealed={revealed}
             onReveal={() => setRevealed(true)}
+            onGrade={grade}
             runMode={runMode}
           />
         )}
       </div>
 
-      {/* Grade actions */}
+      {/* Mobile-only fallbacks: grade bar / reveal button at the bottom of the
+          screen. On md+ both are inside the right-hand panel. */}
       {revealed && current && (
-        <GradeBar onGrade={grade} />
+        <div className="md:hidden">
+          <GradeBar onGrade={grade} />
+        </div>
       )}
       {!revealed && current && runMode === "standard" && (
-        <div className="px-4 pb-6">
+        <div className="px-4 pb-6 md:hidden">
           <button
             onClick={() => setRevealed(true)}
             className="w-full h-12 flex items-center justify-center gap-2 bg-teal hover:bg-teal-light text-white rounded-lg text-sm font-semibold transition-colors"
@@ -207,52 +227,73 @@ function QuizSessionInner() {
   );
 }
 
-function ImageStage({
+function RevealPanel({
   item,
   revealed,
   onReveal,
+  onGrade,
   runMode,
 }: {
   item: ImageQuizItem;
   revealed: boolean;
   onReveal: () => void;
+  onGrade: (r: TestResult) => void;
   runMode: RunMode;
 }) {
   const { image, review } = item;
   const brief = image.ai_brief;
   const ctxLabel = [image.topic_name, image.chapter_name].filter(Boolean).join(" · ");
 
-  return (
-    <div className="flex-1 flex flex-col">
-      {/* Image — taps to reveal in standard mode */}
-      <button
-        onClick={runMode === "standard" && !revealed ? onReveal : undefined}
-        className="flex-1 flex items-center justify-center bg-black p-2"
-      >
-        <img
-          src={image.url || ""}
-          alt={image.display_name || "Image radiologique"}
-          className="max-h-full max-w-full object-contain"
-          draggable={false}
-        />
-      </button>
+  // On md+, the panel is always present (right column). On mobile, it slides
+  // up from the bottom on reveal. Hide entirely on mobile when not revealed.
+  const baseClasses =
+    "bg-card md:w-[480px] md:flex-shrink-0 md:border-l md:border-t-0 border-t border-border md:max-h-screen md:overflow-y-auto md:flex md:flex-col";
 
-      {/* Reveal panel */}
-      <AnimatePresence>
-        {revealed && brief && (
-          <motion.div
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 220, damping: 26 }}
-            className="bg-card border-t border-border max-h-[55vh] overflow-y-auto"
-          >
-            <div className="px-4 py-3 space-y-3">
-              {ctxLabel && (
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  {ctxLabel}
-                </p>
-              )}
+  // Pre-reveal placeholder on md+ : show "Tap image / Voir la réponse" button.
+  if (!revealed) {
+    return (
+      <div className={`${baseClasses} hidden md:flex`}>
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="text-center space-y-3">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+              Réponse cachée
+            </p>
+            {runMode === "standard" ? (
+              <button
+                onClick={onReveal}
+                className="h-12 px-6 flex items-center gap-2 bg-teal hover:bg-teal-light text-white rounded-lg text-sm font-semibold transition-colors mx-auto"
+              >
+                <Eye className="w-4 h-4" /> Voir la réponse
+              </button>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Reveal automatique dans {Math.ceil(BLITZ_REVEAL_DELAY_MS / 1000)}s…
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        key={image.id}
+        initial={{ y: 100, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 100, opacity: 0 }}
+        transition={{ type: "spring", stiffness: 220, damping: 26 }}
+        className={`${baseClasses} max-h-[55vh] overflow-y-auto md:max-h-screen`}
+      >
+        <div className="flex-1 px-4 py-3 space-y-3 md:overflow-y-auto">
+          {ctxLabel && (
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              {ctxLabel}
+            </p>
+          )}
+          {brief ? (
+            <>
               <div className="flex items-start gap-2">
                 <Sparkles className="w-4 h-4 text-teal mt-0.5 shrink-0" />
                 <h2 className="text-base font-semibold text-foreground leading-tight">
@@ -304,23 +345,21 @@ function ImageStage({
                   Streak {review.correct_streak}/4 · Difficulté {review.difficulty_level} · Vues {review.total_reviews}
                 </p>
               )}
-            </div>
-          </motion.div>
-        )}
-        {revealed && !brief && (
-          <motion.div
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            className="bg-card border-t border-border px-4 py-6"
-          >
-            <p className="text-sm text-muted-foreground italic text-center">
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground italic text-center py-4">
               Pas de brief disponible pour cette image.
             </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+          )}
+        </div>
+
+        {/* Grade bar — sticky bottom on md+ inside the panel; on mobile,
+            rendered separately below the image (see parent component). */}
+        <div className="hidden md:block sticky bottom-0 bg-card border-t border-border">
+          <GradeBar onGrade={onGrade} />
+        </div>
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
