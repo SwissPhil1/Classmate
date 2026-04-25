@@ -1,35 +1,30 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 const BUCKET = 'entity-images'
-const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 
 /**
- * Upload an image to Supabase Storage for an entity.
+ * Upload a (compressed) image blob to Supabase Storage for an entity.
  * Path: {userId}/{entityId}/{uuid}.{ext}
+ *
+ * Phase 1: caller compresses to WebP via src/lib/image-compression.ts before
+ * calling this — no size cap is enforced here because compression already
+ * keeps payloads small (max edge 2048px @ q0.85).
  */
 export async function uploadEntityImage(
   supabase: SupabaseClient,
   userId: string,
   entityId: string,
-  file: File
+  body: Blob,
+  ext = 'webp'
 ): Promise<string> {
-  if (file.size > MAX_FILE_SIZE) {
-    throw new Error('Image trop volumineuse (max 5 Mo)')
-  }
-
-  const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
-  const allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'gif']
-  if (!allowedExts.includes(ext)) {
-    throw new Error('Format non supporté. Utilisez JPG, PNG ou WebP.')
-  }
-
   const uuid = crypto.randomUUID()
   const storagePath = `${userId}/${entityId}/${uuid}.${ext}`
+  const contentType = body.type || `image/${ext}`
 
   const { error } = await supabase.storage
     .from(BUCKET)
-    .upload(storagePath, file, {
-      contentType: file.type,
+    .upload(storagePath, body, {
+      contentType,
       upsert: false,
     })
 

@@ -7,7 +7,8 @@ export type TestResult = 'correct' | 'partial' | 'wrong'
 export type SessionType = 'short' | 'weekend' | 'topic_study' | 'weekly_review' | 'monthly_review' | 'weak_items'
 export type ThemeMode = 'dark' | 'light'
 export type DifficultyLevel = 1 | 2 | 3
-export type ImageModality = 'CT' | 'IRM' | 'RX' | 'US' | 'autre'
+export type ImageModality = 'CT' | 'IRM' | 'RX' | 'US' | 'UIV' | 'angio' | 'autre'
+export type MRISequence = 'T1' | 'T2' | 'STIR' | 'DWI' | 'T1 FS' | 'T2 FS' | 'T1 GADO'
 export type Priority = 'normal' | 'vital'
 export type PrioritySource = 'auto' | 'manual'
 
@@ -85,6 +86,16 @@ export interface EntityImage {
   modality: ImageModality | null
   display_order: number
   created_at: string
+  // Phase 1 image-library extensions (migration 016).
+  // Older rows have NULL for dimensions/file_size_bytes (no retro-compression).
+  display_name: string | null
+  tags: string[]
+  sequence: string | null
+  source_url: string | null
+  width: number | null
+  height: number | null
+  file_size_bytes: number | null
+  is_cover: boolean
   url?: string // derived signed URL, not in DB
 }
 
