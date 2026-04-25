@@ -20,6 +20,7 @@ import type { TopicHealth, SessionType, Entity } from "@/lib/types";
 import { ExamCountdown } from "@/components/dashboard/exam-countdown";
 import { TodayQueue } from "@/components/dashboard/today-queue";
 import { DailyDrill } from "@/components/dashboard/daily-drill";
+import { MnemonicDrillCard } from "@/components/dashboard/mnemonic-drill-card";
 import { TopicHealthGrid } from "@/components/dashboard/topic-health-grid";
 import { QuickAddButton } from "@/components/dashboard/quick-add-button";
 import { QuickAddSheet } from "@/components/dashboard/quick-add-sheet";
@@ -202,6 +203,9 @@ export default function DashboardPage() {
             }}
           />
         )}
+
+        {/* On-demand mnemonic drill — independent of due-today gating */}
+        <MnemonicDrillCard />
 
         {/* Today's Queue */}
         <TodayQueue

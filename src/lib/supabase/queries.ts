@@ -429,6 +429,49 @@ export async function getVitalDueToday(
   return (data ?? []) as Entity[]
 }
 
+/**
+ * On-demand pool for the "drill MMT" mode: every entity the user has with a
+ * recognized mnemonic, regardless of whether it's due today. Differs from
+ * getVitalDueToday() which is gated by next_test_date <= today.
+ */
+export async function getMnemonicEntities(
+  supabase: SupabaseClient,
+  userId: string,
+  limit: number = 30
+): Promise<Entity[]> {
+  const { data, error } = await supabase
+    .from('entities')
+    .select('*, chapter:chapters(*, topic:topics(*)), brief:briefs(content)')
+    .eq('user_id', userId)
+    .eq('has_mnemonic', true)
+    .eq('pre_test_done', true)
+    .in('status', ['active', 'new', 'solid'])
+    .order('next_test_date', { ascending: true, nullsFirst: false })
+    .limit(limit)
+  if (error) throw error
+  return (data ?? []) as Entity[]
+}
+
+/**
+ * Lightweight count of mnemonic-bearing entities for the dashboard card —
+ * doesn't pull joins or briefs, just confirms whether the drill is worth
+ * surfacing.
+ */
+export async function countMnemonicEntities(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<number> {
+  const { count, error } = await supabase
+    .from('entities')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('has_mnemonic', true)
+    .eq('pre_test_done', true)
+    .in('status', ['active', 'new', 'solid'])
+  if (error) throw error
+  return count ?? 0
+}
+
 export async function setEntityPriority(
   supabase: SupabaseClient,
   entityId: string,
