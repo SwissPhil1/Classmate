@@ -702,6 +702,25 @@ export async function markImageAnalyzing(
   if (error) throw error
 }
 
+/**
+ * List images for this user that haven't been analyzed by Claude yet (status
+ * pending) or that errored on a previous attempt. Used by the bulk-analyze
+ * button to backfill old uploads.
+ */
+export async function getPendingImages(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<EntityImage[]> {
+  const { data, error } = await supabase
+    .from('entity_images')
+    .select('*')
+    .eq('user_id', userId)
+    .in('ai_brief_status', ['pending', 'error'])
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as EntityImage[]
+}
+
 // ─── Image quiz SRS (Phase 2) ───────────────────────────────
 
 export interface ImageQuizFilters {

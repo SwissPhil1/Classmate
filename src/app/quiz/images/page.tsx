@@ -7,6 +7,7 @@ import { ArrowLeft, Sparkles, Zap, Play } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { getTopics, getChapters } from "@/lib/supabase/queries";
+import { BulkAnalyzeImagesButton } from "@/components/quiz/bulk-analyze-images-button";
 import type { Topic, Chapter, ImageModality } from "@/lib/types";
 
 type SrsMode = "due" | "new" | "all";
@@ -93,6 +94,8 @@ export default function QuizImagesConfigPage() {
           Sélectionne une portée et lance une session. Les images sans brief Claude
           (statut « analyse en cours » ou « erreur ») sont exclues automatiquement.
         </p>
+
+        <BulkAnalyzeImagesButton />
 
         <div className="space-y-4">
           <Section label="Thème">

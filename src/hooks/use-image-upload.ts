@@ -43,7 +43,10 @@ async function triggerAnalyze(
   imageId: string,
   onAnalyzed?: UseImageUploadOpts['onAnalyzed']
 ): Promise<void> {
-  if (!onAnalyzed) return
+  // Always run the analysis server-side. The callback only refreshes local UI
+  // state, so it's optional — but the API call must fire regardless of caller
+  // wiring, otherwise images uploaded outside the brief page stay
+  // ai_brief_status='pending' forever and are excluded from the image quiz.
   try {
     const res = await fetch('/api/claude/analyze-image', {
       method: 'POST',
@@ -52,21 +55,21 @@ async function triggerAnalyze(
     })
     const data = await res.json()
     if (!res.ok) {
-      onAnalyzed(imageId, {
+      onAnalyzed?.(imageId, {
         ai_brief: null,
         ai_brief_status: 'error',
         ai_brief_generated_at: null,
       })
       return
     }
-    onAnalyzed(imageId, {
+    onAnalyzed?.(imageId, {
       ai_brief: data.ai_brief ?? null,
       ai_brief_status: data.ai_brief_status ?? 'done',
       ai_brief_generated_at: data.ai_brief_generated_at ?? null,
     })
   } catch (err) {
     console.error('Analyze image background fetch error:', err)
-    onAnalyzed(imageId, {
+    onAnalyzed?.(imageId, {
       ai_brief: null,
       ai_brief_status: 'error',
       ai_brief_generated_at: null,
