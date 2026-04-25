@@ -72,8 +72,20 @@ export function ImageUpload({ upload, progress, clearCompleted, compact = false 
       }
       void upload(files, null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(`Lecture presse-papier impossible: ${message}`);
+      // Safari iPad denies clipboard.read() if the user dismissed the system
+      // paste prompt or already denied once. Surface a useful fallback path.
+      const isPermission =
+        err instanceof DOMException &&
+        (err.name === "NotAllowedError" || err.name === "SecurityError");
+      if (isPermission) {
+        toast.error(
+          "Safari a refusé l'accès. Enregistre l'image dans Photos (appui long → Enregistrer), puis tape la zone pour la choisir.",
+          { duration: 8000 }
+        );
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error(`Lecture presse-papier impossible: ${message}`);
+      }
     }
   }, [upload]);
 
@@ -121,7 +133,8 @@ export function ImageUpload({ upload, progress, clearCompleted, compact = false 
         )}
       </div>
 
-      {/* Explicit paste button — works on iPad Safari without keyboard or focus. */}
+      {/* Explicit paste button — works on desktop and on iPad if Safari grants
+          clipboard access. Falls back gracefully via toast when denied. */}
       <button
         type="button"
         onClick={pasteFromClipboard}
@@ -130,6 +143,12 @@ export function ImageUpload({ upload, progress, clearCompleted, compact = false 
         <ClipboardPaste className="w-4 h-4" />
         Coller depuis le presse-papier
       </button>
+
+      {!compact && (
+        <p className="text-[11px] text-muted-foreground text-center px-2">
+          iPad: enregistre dans Photos puis tape la zone pour la choisir.
+        </p>
+      )}
 
       {items.length > 0 && (
         <ul className="space-y-1.5">
