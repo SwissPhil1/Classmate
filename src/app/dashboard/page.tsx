@@ -25,7 +25,7 @@ import { QuickAddButton } from "@/components/dashboard/quick-add-button";
 import { QuickAddSheet } from "@/components/dashboard/quick-add-sheet";
 import { ResumeSessionModal } from "@/components/dashboard/resume-session-modal";
 import { InterleavingNudge } from "@/components/dashboard/interleaving-nudge";
-import { Settings, BookOpen, Clock, BarChart3 } from "lucide-react";
+import { Settings, BookOpen, Clock, BarChart3, Images } from "lucide-react";
 import Link from "next/link";
 
 export default function DashboardPage() {
@@ -149,6 +149,13 @@ export default function DashboardPage() {
               className="p-2 rounded-lg hover:bg-card transition-colors"
             >
               <BookOpen className="w-5 h-5 text-muted-foreground" />
+            </Link>
+            <Link
+              href="/quiz/images"
+              className="p-2 rounded-lg hover:bg-card transition-colors"
+              aria-label="Quiz d'images"
+            >
+              <Images className="w-5 h-5 text-muted-foreground" />
             </Link>
             <Link
               href="/history"

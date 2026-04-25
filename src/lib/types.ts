@@ -20,6 +20,23 @@ export interface ImageAIBrief {
 }
 
 export type ImageAIBriefStatus = 'pending' | 'analyzing' | 'done' | 'error'
+
+export type ImageReviewStatus = 'new' | 'active' | 'solid' | 'archived'
+
+/** Per-(image, user) SRS state — Phase 2 image quiz. */
+export interface ImageReviewState {
+  id: string
+  image_id: string
+  user_id: string
+  correct_streak: number
+  difficulty_level: DifficultyLevel
+  cycle_count: number
+  status: ImageReviewStatus
+  next_review_date: string | null
+  last_reviewed: string | null
+  total_reviews: number
+  created_at: string
+}
 export type Priority = 'normal' | 'vital'
 export type PrioritySource = 'auto' | 'manual'
 

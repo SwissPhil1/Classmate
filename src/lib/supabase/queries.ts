@@ -2,7 +2,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import type {
   Entity, EntityImage, Topic, Chapter, Source, Brief, Session, SessionState,
   TestResultRecord, UserSettings, QueueItem, EntityType, SessionType, ExamComponent,
-  TopicHealth, HealthStatus, EntityEvent, EntityEventKind,
+  TopicHealth, HealthStatus, EntityEvent, EntityEventKind, ImageReviewState,
 } from '@/lib/types'
 import { chapterHealth } from '@/lib/spaced-repetition'
 
@@ -699,6 +699,140 @@ export async function markImageAnalyzing(
     .from('entity_images')
     .update({ ai_brief_status: 'analyzing', ai_brief_error: null })
     .eq('id', imageId)
+  if (error) throw error
+}
+
+// ─── Image quiz SRS (Phase 2) ───────────────────────────────
+
+export interface ImageQuizFilters {
+  topic_id?: string | null
+  chapter_id?: string | null
+  modality?: string | null
+  tags?: string[]
+  srs_mode: 'due' | 'new' | 'all'
+  limit: number
+}
+
+export interface ImageQuizItem {
+  image: EntityImage & {
+    entity_name: string | null
+    chapter_name: string | null
+    topic_name: string | null
+  }
+  review: ImageReviewState | null
+}
+
+/**
+ * Fetch images matching the quiz filters, attach the per-user SRS state.
+ * Sort: due-first (oldest next_review_date), new (no state) interleaved.
+ *
+ * Two-query strategy: first the images (with entity/chapter/topic joins),
+ * then the review_state rows for those images. Merging in JS keeps the SQL
+ * simple and lets RLS handle user_id filtering on both sides.
+ */
+export async function getImagesForQuiz(
+  supabase: SupabaseClient,
+  userId: string,
+  filters: ImageQuizFilters
+): Promise<ImageQuizItem[]> {
+  let q = supabase
+    .from('entity_images')
+    .select('*, entities!inner(id, name, chapter_id, chapters!inner(id, name, topic_id, topics!inner(id, name)))')
+    .eq('user_id', userId)
+    .eq('ai_brief_status', 'done') // only images Claude has actually analyzed
+
+  if (filters.modality) q = q.eq('modality', filters.modality)
+  if (filters.chapter_id) q = q.eq('entities.chapter_id', filters.chapter_id)
+  if (filters.topic_id) q = q.eq('entities.chapters.topic_id', filters.topic_id)
+  if (filters.tags && filters.tags.length > 0) q = q.overlaps('tags', filters.tags)
+
+  // Pull more than needed so we can filter by SRS state in JS, then trim.
+  q = q.limit(Math.max(200, filters.limit * 4))
+
+  const { data: images, error } = await q
+  if (error) throw error
+  if (!images || images.length === 0) return []
+
+  type Joined = EntityImage & {
+    entities?: {
+      id: string
+      name: string
+      chapter_id: string
+      chapters?: { id: string; name: string; topic_id: string; topics?: { id: string; name: string } }
+    }
+  }
+  const flat = (images as unknown as Joined[]).map((img) => ({
+    ...img,
+    entity_name: img.entities?.name ?? null,
+    chapter_name: img.entities?.chapters?.name ?? null,
+    topic_name: img.entities?.chapters?.topics?.name ?? null,
+  }))
+
+  const imageIds = flat.map((i) => i.id)
+  const { data: states, error: stateErr } = await supabase
+    .from('image_review_state')
+    .select('*')
+    .eq('user_id', userId)
+    .in('image_id', imageIds)
+  if (stateErr) throw stateErr
+
+  const stateById = new Map<string, ImageReviewState>()
+  for (const s of (states as ImageReviewState[]) ?? []) stateById.set(s.image_id, s)
+
+  const today = new Date().toISOString().split('T')[0]
+
+  const items: ImageQuizItem[] = flat.map((img) => ({
+    image: img,
+    review: stateById.get(img.id) ?? null,
+  }))
+
+  // SRS mode filtering.
+  let filtered = items
+  if (filters.srs_mode === 'new') {
+    filtered = items.filter((it) => !it.review)
+  } else if (filters.srs_mode === 'due') {
+    filtered = items.filter((it) => {
+      if (!it.review) return true // new = always due
+      if (it.review.status === 'archived') return false
+      if (!it.review.next_review_date) return true
+      return it.review.next_review_date <= today
+    })
+  }
+  // 'all' keeps everything (incl. archived).
+
+  // Sort: due dates ascending (overdue first), nulls (new) at the end —
+  // unless mode is 'new', in which case order doesn't matter much.
+  filtered.sort((a, b) => {
+    const ad = a.review?.next_review_date ?? '9999-12-31'
+    const bd = b.review?.next_review_date ?? '9999-12-31'
+    return ad.localeCompare(bd)
+  })
+
+  return filtered.slice(0, filters.limit)
+}
+
+/**
+ * Apply an SRS update for an image, creating the review_state row if missing.
+ * Pass the calculateNextReview() output (mapped from entity field names to
+ * image field names by the caller).
+ */
+export async function upsertImageReviewState(
+  supabase: SupabaseClient,
+  payload: {
+    image_id: string
+    user_id: string
+    correct_streak: number
+    difficulty_level: number
+    cycle_count: number
+    status: string
+    next_review_date: string | null
+    last_reviewed: string
+    total_reviews: number
+  }
+): Promise<void> {
+  const { error } = await supabase
+    .from('image_review_state')
+    .upsert(payload, { onConflict: 'image_id,user_id' })
   if (error) throw error
 }
 
