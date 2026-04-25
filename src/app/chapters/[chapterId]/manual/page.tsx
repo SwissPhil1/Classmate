@@ -10,6 +10,7 @@ import { useUser } from "@/hooks/use-user";
 import { createEntity, getSources, getEntities } from "@/lib/supabase/queries";
 import type { Chapter, Topic, EntityType, Source } from "@/lib/types";
 import { parseSections } from "@/lib/brief-parsing";
+import { ChapterClaudeActions } from "@/components/chapter/chapter-claude-actions";
 
 interface ProposedEntity {
   name: string;
@@ -337,6 +338,21 @@ export default function ChapterManualPage() {
             )}
           </button>
         </section>
+
+        {/* Claude actions: generate manual + auto-link entities + bulk regen */}
+        {chapter && topic && (
+          <ChapterClaudeActions
+            chapterId={chapter.id}
+            chapterName={chapter.name}
+            topicName={topic.name}
+            manualContent={content}
+            dirty={dirty}
+            onGenerated={(markdown) => {
+              setContent(markdown);
+              setDirty(true);
+            }}
+          />
+        )}
 
         {/* Full edit / replace mode — below append card, clearly labelled destructive */}
         <section className="space-y-2">
