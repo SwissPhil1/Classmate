@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useCallback, useMemo } from "react";
+import { useEffect, useCallback, useMemo, useRef } from "react";
 import { useDropzone } from "react-dropzone";
-import { ImagePlus, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { ImagePlus, CheckCircle2, AlertCircle, Loader2, ClipboardPaste } from "lucide-react";
+import { toast } from "sonner";
 import type { UploadFileState } from "@/hooks/use-image-upload";
 
 interface ImageUploadProps {
@@ -16,6 +17,8 @@ interface ImageUploadProps {
 }
 
 export function ImageUpload({ upload, progress, clearCompleted, compact = false }: ImageUploadProps) {
+  const dropRef = useRef<HTMLDivElement>(null);
+
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       if (acceptedFiles.length === 0) return;
@@ -36,6 +39,44 @@ export function ImageUpload({ upload, progress, clearCompleted, compact = false 
     noKeyboard: true,
   });
 
+  // Focus the drop-zone on mount so Safari iPadOS dispatches `paste` events
+  // when the user hits Cmd+V — without focus on a tabbable element, Safari
+  // mobile silently drops the paste.
+  useEffect(() => {
+    dropRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  // Click the "Coller" button: read the clipboard via the async API. Works
+  // on iPad Safari without needing focus on any specific element, and
+  // bypasses the Cmd+V routing entirely.
+  const pasteFromClipboard = useCallback(async () => {
+    if (!navigator.clipboard?.read) {
+      toast.error("Presse-papier non disponible sur ce navigateur");
+      return;
+    }
+    try {
+      const items = await navigator.clipboard.read();
+      const files: File[] = [];
+      for (const item of items) {
+        for (const type of item.types) {
+          if (type.startsWith("image/")) {
+            const blob = await item.getType(type);
+            const ext = type.split("/")[1] || "png";
+            files.push(new File([blob], `pasted-${Date.now()}.${ext}`, { type }));
+          }
+        }
+      }
+      if (files.length === 0) {
+        toast.error("Aucune image dans le presse-papier");
+        return;
+      }
+      void upload(files, null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`Lecture presse-papier impossible: ${message}`);
+    }
+  }, [upload]);
+
   const items = useMemo(() => Array.from(progress.values()), [progress]);
   const hasErrors = items.some((it) => it.status === "error");
   const hasSaved = items.some((it) => it.status === "saved");
@@ -47,14 +88,24 @@ export function ImageUpload({ upload, progress, clearCompleted, compact = false 
     return () => clearTimeout(t);
   }, [hasSaved, clearCompleted]);
 
+  const rootProps = getRootProps();
+
   return (
     <div className="space-y-2">
       <div
-        {...getRootProps()}
+        {...rootProps}
+        ref={(el) => {
+          dropRef.current = el;
+          // react-dropzone also assigns its own ref via getRootProps — let it.
+          const rpRef = (rootProps as { ref?: React.MutableRefObject<HTMLElement | null> }).ref;
+          if (rpRef && "current" in rpRef) rpRef.current = el;
+        }}
         onClick={() => open()}
+        tabIndex={0}
         role="button"
         aria-label="Ajouter des images (drop, paste ou tap)"
-        className={`flex flex-col items-center justify-center gap-1.5 border-2 border-dashed rounded-xl cursor-pointer transition-colors
+        className={`flex flex-col items-center justify-center gap-1.5 border-2 border-dashed rounded-xl cursor-pointer transition-colors outline-none
+          focus-visible:border-teal focus-visible:bg-teal/5
           ${isDragActive ? "border-teal bg-teal/10" : "border-border hover:border-teal/50 hover:bg-teal/5"}
           ${compact ? "h-20 px-3" : "h-28 px-4"}`}
       >
@@ -69,6 +120,16 @@ export function ImageUpload({ upload, progress, clearCompleted, compact = false 
           </p>
         )}
       </div>
+
+      {/* Explicit paste button — works on iPad Safari without keyboard or focus. */}
+      <button
+        type="button"
+        onClick={pasteFromClipboard}
+        className="w-full h-10 flex items-center justify-center gap-2 bg-card border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors"
+      >
+        <ClipboardPaste className="w-4 h-4" />
+        Coller depuis le presse-papier
+      </button>
 
       {items.length > 0 && (
         <ul className="space-y-1.5">
