@@ -18,17 +18,63 @@ export interface UploadFileState {
   error?: string
 }
 
+import type { ImageAIBrief, ImageAIBriefStatus } from '@/lib/types'
+
 interface UseImageUploadOpts {
   userId: string
   entityId: string
   /** display_order assigned to the next uploaded image. Increments per file. */
   baseDisplayOrder: number
   onSaved: (image: EntityImage) => void
+  /**
+   * Called once the AI brief endpoint resolves (or errors). Fired in the
+   * background — the upload itself doesn't wait. Optional: callers that don't
+   * want auto-analysis just skip this prop.
+   */
+  onAnalyzed?: (
+    imageId: string,
+    patch: { ai_brief: ImageAIBrief | null; ai_brief_status: ImageAIBriefStatus; ai_brief_generated_at: string | null }
+  ) => void
 }
 
 const MAX_CONCURRENT = 3
 
-export function useImageUpload({ userId, entityId, baseDisplayOrder, onSaved }: UseImageUploadOpts) {
+async function triggerAnalyze(
+  imageId: string,
+  onAnalyzed?: UseImageUploadOpts['onAnalyzed']
+): Promise<void> {
+  if (!onAnalyzed) return
+  try {
+    const res = await fetch('/api/claude/analyze-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_id: imageId }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      onAnalyzed(imageId, {
+        ai_brief: null,
+        ai_brief_status: 'error',
+        ai_brief_generated_at: null,
+      })
+      return
+    }
+    onAnalyzed(imageId, {
+      ai_brief: data.ai_brief ?? null,
+      ai_brief_status: data.ai_brief_status ?? 'done',
+      ai_brief_generated_at: data.ai_brief_generated_at ?? null,
+    })
+  } catch (err) {
+    console.error('Analyze image background fetch error:', err)
+    onAnalyzed(imageId, {
+      ai_brief: null,
+      ai_brief_status: 'error',
+      ai_brief_generated_at: null,
+    })
+  }
+}
+
+export function useImageUpload({ userId, entityId, baseDisplayOrder, onSaved, onAnalyzed }: UseImageUploadOpts) {
   const [progress, setProgress] = useState<Map<string, UploadFileState>>(new Map())
   const inFlightRef = useRef(0)
   const orderRef = useRef(baseDisplayOrder)
@@ -77,7 +123,18 @@ export function useImageUpload({ userId, entityId, baseDisplayOrder, onSaved }: 
 
         const url = await getImageUrl(supabase, storagePath)
         setFileState(fileId, { status: 'saved', pct: 100 })
-        onSaved({ ...record, url })
+        // Show the image to the user immediately with status='analyzing' so
+        // the gallery can render a "analyse..." badge while Claude is working.
+        const savedImage: EntityImage = {
+          ...record,
+          url,
+          ai_brief_status: 'analyzing',
+        }
+        onSaved(savedImage)
+
+        // Fire-and-forget AI brief — the upload promise resolves immediately.
+        // The caller's onAnalyzed will be invoked when Claude responds.
+        void triggerAnalyze(record.id, onAnalyzed)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         setFileState(fileId, { status: 'error', pct: 0, error: message })

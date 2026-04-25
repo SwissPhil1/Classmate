@@ -687,6 +687,21 @@ export async function deleteEntityImage(
   if (error) throw error
 }
 
+/**
+ * Mark an image as analyzing — used for optimistic UI before the
+ * /api/claude/analyze-image endpoint completes its own status flip.
+ */
+export async function markImageAnalyzing(
+  supabase: SupabaseClient,
+  imageId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('entity_images')
+    .update({ ai_brief_status: 'analyzing', ai_brief_error: null })
+    .eq('id', imageId)
+  if (error) throw error
+}
+
 // ─── Entity activity log + undo ────────────────────────────
 export async function createEntityEvent(
   supabase: SupabaseClient,

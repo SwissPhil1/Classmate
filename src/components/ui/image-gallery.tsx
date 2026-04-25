@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence, type PanInfo } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, Trash2, Pencil, Star, ArrowUp, ArrowDown } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Trash2, Pencil, Star, ArrowUp, ArrowDown, Sparkles, AlertCircle, Loader2 } from "lucide-react";
 import type { EntityImage } from "@/lib/types";
 import type { EntityImagePatch } from "@/lib/supabase/queries";
 import { ImageEditModal } from "./image-edit-modal";
@@ -13,6 +13,7 @@ interface ImageGalleryProps {
   onSave?: (imageId: string, patch: EntityImagePatch) => Promise<void> | void;
   onSetCover?: (imageId: string) => Promise<void> | void;
   onReorder?: (imageId: string, direction: -1 | 1) => Promise<void> | void;
+  onReanalyze?: (imageId: string) => Promise<void> | void;
   compact?: boolean;
 }
 
@@ -30,12 +31,38 @@ function displayLabel(image: EntityImage, fallbackIndex: number): string {
   return image.display_name || image.caption || `Image ${fallbackIndex + 1}`;
 }
 
+function AIBriefBadge({ status }: { status: EntityImage["ai_brief_status"] }) {
+  if (status === "done") {
+    return (
+      <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-teal/90 text-white text-[10px] font-semibold rounded">
+        <Sparkles className="w-2.5 h-2.5" /> brief
+      </span>
+    );
+  }
+  if (status === "analyzing" || status === "pending") {
+    return (
+      <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-background/90 border border-border text-muted-foreground text-[10px] font-medium rounded">
+        <Loader2 className="w-2.5 h-2.5 animate-spin" /> analyse
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-wrong/90 text-white text-[10px] font-semibold rounded">
+        <AlertCircle className="w-2.5 h-2.5" /> err
+      </span>
+    );
+  }
+  return null;
+}
+
 export function ImageGallery({
   images,
   onDelete,
   onSave,
   onSetCover,
   onReorder,
+  onReanalyze,
   compact = false,
 }: ImageGalleryProps) {
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
@@ -126,6 +153,10 @@ export function ImageGallery({
                 </span>
               )}
 
+              {/* AI brief status badge — bottom-left, doesn't overlap modality */}
+              <AIBriefBadge status={image.ai_brief_status} />
+
+
               {/* Action overlay — always visible on touch devices (iPad-first). */}
               {(onSave || onDelete || onReorder) && (
                 <div className="absolute top-1.5 right-1.5 flex gap-1 transition-opacity">
@@ -212,6 +243,7 @@ export function ImageGallery({
       {editingImage && onSave && (
         <ImageEditModal
           image={editingImage}
+          onReanalyze={onReanalyze}
           onSave={async (patch) => {
             const turningOn = patch.is_cover && !editingImage.is_cover;
             const turningOff = !patch.is_cover && editingImage.is_cover;

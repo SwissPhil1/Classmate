@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { X, Star, Plus } from "lucide-react";
-import type { EntityImage, ImageModality } from "@/lib/types";
+import { X, Star, Plus, Sparkles, RefreshCw, Loader2, AlertCircle } from "lucide-react";
+import { toast } from "sonner";
+import type { EntityImage, ImageAIBrief, ImageAIBriefStatus, ImageModality } from "@/lib/types";
 
 const MODALITY_OPTIONS: { value: ImageModality; label: string }[] = [
   { value: "CT", label: "CT" },
@@ -29,6 +30,8 @@ export interface ImageEditPatch {
 interface ImageEditModalProps {
   image: EntityImage;
   onSave: (patch: ImageEditPatch) => Promise<void> | void;
+  /** Optional: triggers re-analysis. Caller surfaces the new brief via prop refresh. */
+  onReanalyze?: (imageId: string) => Promise<void> | void;
   onClose: () => void;
 }
 
@@ -37,7 +40,7 @@ function deriveDefaultName(image: EntityImage): string {
   return tail.replace(/\.[^.]+$/, "");
 }
 
-export function ImageEditModal({ image, onSave, onClose }: ImageEditModalProps) {
+export function ImageEditModal({ image, onSave, onReanalyze, onClose }: ImageEditModalProps) {
   const placeholder = useMemo(() => deriveDefaultName(image), [image]);
   const [displayName, setDisplayName] = useState(image.display_name ?? "");
   const [caption, setCaption] = useState(image.caption ?? "");
@@ -112,6 +115,17 @@ export function ImageEditModal({ image, onSave, onClose }: ImageEditModalProps) 
               src={image.url}
               alt={image.caption || "Image"}
               className="w-full max-h-40 object-contain rounded-lg border border-border bg-background"
+            />
+          )}
+
+          {/* AI brief panel */}
+          {onReanalyze && (
+            <AIBriefPanel
+              imageId={image.id}
+              brief={image.ai_brief}
+              status={image.ai_brief_status}
+              error={image.ai_brief_error}
+              onReanalyze={onReanalyze}
             />
           )}
 
@@ -278,4 +292,144 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </div>
   );
+}
+
+function AIBriefPanel({
+  imageId,
+  brief,
+  status,
+  error,
+  onReanalyze,
+}: {
+  imageId: string;
+  brief: ImageAIBrief | null;
+  status: ImageAIBriefStatus;
+  error: string | null;
+  onReanalyze: (imageId: string) => Promise<void> | void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const handle = async () => {
+    setBusy(true);
+    try {
+      await onReanalyze(imageId);
+      toast.success("Réanalyse lancée");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Réanalyse impossible");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-background/50 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+          <Sparkles className="w-3.5 h-3.5 text-teal" /> Brief Claude
+          <StatusPill status={status} />
+        </div>
+        <button
+          type="button"
+          onClick={handle}
+          disabled={busy || status === "analyzing"}
+          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground border border-border rounded-md disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3 h-3 ${busy ? "animate-spin" : ""}`} />
+          {brief ? "Réanalyser" : "Analyser"}
+        </button>
+      </div>
+
+      <div className="p-3 text-xs space-y-2">
+        {status === "analyzing" && !brief && (
+          <p className="text-muted-foreground italic">Claude analyse l&apos;image…</p>
+        )}
+        {status === "error" && (
+          <p className="text-wrong">{error || "Analyse échouée"}</p>
+        )}
+        {brief && (
+          <>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                Diagnostic probable
+              </p>
+              <p className="text-foreground font-medium">{brief.diagnostic_likely}</p>
+            </div>
+
+            {brief.semiologic_findings.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                  Sémiologie (ce qu&apos;on dit à l&apos;oral)
+                </p>
+                <ul className="space-y-0.5 text-foreground">
+                  {brief.semiologic_findings.map((f, i) => (
+                    <li key={i} className="flex gap-1.5">
+                      <span className="text-teal">·</span>
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {brief.top_3_ddx.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                  Top 3 DDx
+                </p>
+                <ol className="space-y-1 text-foreground">
+                  {brief.top_3_ddx.map((d, i) => (
+                    <li key={i}>
+                      <span className="font-medium">{i + 1}. {d.dx}</span>
+                      <span className="text-muted-foreground"> — {d.distinguishing_feature}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
+            {brief.pitfalls.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                  Pièges
+                </p>
+                <ul className="space-y-0.5 text-foreground">
+                  {brief.pitfalls.map((p, i) => (
+                    <li key={i} className="flex gap-1.5">
+                      <span className="text-amber-500">!</span>
+                      <span>{p}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: ImageAIBriefStatus }) {
+  if (status === "done") {
+    return (
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-teal/10 text-teal text-[10px] font-semibold">
+        ok
+      </span>
+    );
+  }
+  if (status === "analyzing" || status === "pending") {
+    return (
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-card border border-border text-muted-foreground text-[10px] font-medium">
+        <Loader2 className="w-2.5 h-2.5 animate-spin" /> en cours
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-wrong/10 text-wrong text-[10px] font-semibold">
+        <AlertCircle className="w-2.5 h-2.5" /> erreur
+      </span>
+    );
+  }
+  return null;
 }

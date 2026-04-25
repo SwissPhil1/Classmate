@@ -303,6 +303,58 @@ export default function BriefPage() {
     toast.success("Image ajoutée");
   }, []);
 
+  const handleImageAnalyzed = useCallback(
+    (
+      imageId: string,
+      patch: { ai_brief: import("@/lib/types").ImageAIBrief | null; ai_brief_status: import("@/lib/types").ImageAIBriefStatus; ai_brief_generated_at: string | null }
+    ) => {
+      setImages((prev) =>
+        prev.map((i) =>
+          i.id === imageId
+            ? {
+                ...i,
+                ai_brief: patch.ai_brief,
+                ai_brief_status: patch.ai_brief_status,
+                ai_brief_generated_at: patch.ai_brief_generated_at,
+              }
+            : i
+        )
+      );
+    },
+    []
+  );
+
+  const handleImageReanalyze = useCallback(
+    async (imageId: string) => {
+      // Optimistic UI: flip the badge to "analyzing" before the round-trip.
+      setImages((prev) =>
+        prev.map((i) =>
+          i.id === imageId ? { ...i, ai_brief_status: "analyzing" as const, ai_brief_error: null } : i
+        )
+      );
+      const res = await fetch("/api/claude/analyze-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_id: imageId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        handleImageAnalyzed(imageId, {
+          ai_brief: null,
+          ai_brief_status: "error",
+          ai_brief_generated_at: null,
+        });
+        throw new Error(data.error || "Réanalyse impossible");
+      }
+      handleImageAnalyzed(imageId, {
+        ai_brief: data.ai_brief ?? null,
+        ai_brief_status: data.ai_brief_status ?? "done",
+        ai_brief_generated_at: data.ai_brief_generated_at ?? null,
+      });
+    },
+    [handleImageAnalyzed]
+  );
+
   // Single uploader instance for both the drop-zone UI and the page-level
   // paste listener — keeps progress state shared.
   const uploader = useImageUpload({
@@ -310,6 +362,7 @@ export default function BriefPage() {
     entityId,
     baseDisplayOrder: images.length,
     onSaved: handleImageSaved,
+    onAnalyzed: handleImageAnalyzed,
   });
 
   // Page-level paste listener — works anywhere on /brief/[entityId], even when
@@ -503,6 +556,7 @@ export default function BriefPage() {
                 onSave={handleImageSave}
                 onSetCover={handleImageSetCover}
                 onReorder={handleImageReorder}
+                onReanalyze={handleImageReanalyze}
               />
             </div>
           )}

@@ -9,6 +9,17 @@ export type ThemeMode = 'dark' | 'light'
 export type DifficultyLevel = 1 | 2 | 3
 export type ImageModality = 'CT' | 'IRM' | 'RX' | 'US' | 'UIV' | 'angio' | 'autre'
 export type MRISequence = 'T1' | 'T2' | 'STIR' | 'DWI' | 'T1 FS' | 'T2 FS' | 'T1 GADO'
+
+/** Claude-generated brief computed once at upload, reused at quiz time. */
+export interface ImageAIBrief {
+  diagnostic_likely: string
+  top_3_ddx: Array<{ dx: string; distinguishing_feature: string }>
+  semiologic_findings: string[]
+  modality_inferred: ImageModality | null
+  pitfalls: string[]
+}
+
+export type ImageAIBriefStatus = 'pending' | 'analyzing' | 'done' | 'error'
 export type Priority = 'normal' | 'vital'
 export type PrioritySource = 'auto' | 'manual'
 
@@ -96,6 +107,11 @@ export interface EntityImage {
   height: number | null
   file_size_bytes: number | null
   is_cover: boolean
+  // Phase 1.5 — AI brief (migration 017).
+  ai_brief: ImageAIBrief | null
+  ai_brief_status: ImageAIBriefStatus
+  ai_brief_error: string | null
+  ai_brief_generated_at: string | null
   url?: string // derived signed URL, not in DB
 }
 
