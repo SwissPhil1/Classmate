@@ -118,7 +118,7 @@ export default function AuditPage() {
 
   const applyFix = async (item: BriefAuditItem) => {
     const entity = entitiesById.get(item.entity_id);
-    if (!entity || applyingIds.has(item.entity_id)) return;
+    if (!entity || !user || applyingIds.has(item.entity_id)) return;
     setApplyingIds((s) => new Set(s).add(item.entity_id));
 
     try {
@@ -156,6 +156,7 @@ export default function AuditPage() {
       const { upsertBrief } = await import("@/lib/supabase/queries");
       await upsertBrief(supabase, {
         entity_id: entity.id,
+        user_id: user.id,
         content: data.content,
         qa_pairs: data.qa_pairs,
         difficulty_level: entity.difficulty_level,

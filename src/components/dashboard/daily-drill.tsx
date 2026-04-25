@@ -108,6 +108,7 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
           await Promise.all([
             createTestResult(supabase, {
               entity_id: current.id,
+              user_id: current.user_id,
               session_id: null,
               question_text: `Drill mnémo / vital: ${current.name}`,
               question_type: "B_open",

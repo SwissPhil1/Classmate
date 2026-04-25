@@ -393,6 +393,7 @@ async function regenerateOneBrief(
 
   await upsertBrief(supabase, {
     entity_id: entity.id,
+    user_id: entity.user_id,
     content: data.content,
     qa_pairs: data.qa_pairs ?? [],
     difficulty_level: entity.difficulty_level,

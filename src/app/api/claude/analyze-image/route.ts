@@ -45,12 +45,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'image_id requis' }, { status: 400 })
     }
 
-    // RLS already filters by user_id — extra check below for the entity name
-    // hint we add to the prompt.
+    // Defense in depth: explicit user_id filter on top of RLS.
     const { data: image, error: fetchError } = await supabase
       .from('entity_images')
       .select('id, storage_path, entity_id, entities!inner(name, chapter_id, chapters!inner(name, topics!inner(name)))')
       .eq('id', image_id)
+      .eq('user_id', user.id)
       .single()
 
     if (fetchError || !image) {

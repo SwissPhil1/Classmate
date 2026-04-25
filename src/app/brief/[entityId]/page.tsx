@@ -69,9 +69,10 @@ export default function BriefPage() {
   const isParent = children.length > 0;
 
   useEffect(() => {
+    if (!user) return;
     async function load() {
       try {
-        const e = await getEntity(supabase, entityId);
+        const e = await getEntity(supabase, entityId, user!.id);
         setEntity(e);
         setNotes(e.notes || "");
         const [b, ch, imgs, evts] = await Promise.all([
@@ -99,7 +100,7 @@ export default function BriefPage() {
       }
     }
     load();
-  }, [entityId]);
+  }, [entityId, user, supabase]);
 
   const handleGenerate = async () => {
     if (!entity) return;
@@ -143,6 +144,7 @@ export default function BriefPage() {
         const { upsertBrief } = await import("@/lib/supabase/queries");
         const saved = await upsertBrief(supabase, {
           entity_id: entity.id,
+          user_id: user!.id,
           content: data.content,
           qa_pairs: data.qa_pairs,
           difficulty_level: entity.difficulty_level,

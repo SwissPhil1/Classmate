@@ -97,12 +97,12 @@ export async function getEntities(
   return data as Entity[]
 }
 
-export async function getEntity(supabase: SupabaseClient, entityId: string, userId?: string): Promise<Entity> {
-  let query = supabase
+export async function getEntity(supabase: SupabaseClient, entityId: string, userId: string): Promise<Entity> {
+  const query = supabase
     .from('entities')
     .select('*, chapter:chapters(*, topic:topics(*)), source:sources(*), brief:briefs(*)')
     .eq('id', entityId)
-  if (userId) query = query.eq('user_id', userId)
+    .eq('user_id', userId)
   const { data, error } = await query.single()
   if (error) throw error
   return data as Entity
@@ -178,7 +178,7 @@ export async function getBrief(supabase: SupabaseClient, entityId: string): Prom
 
 export async function upsertBrief(
   supabase: SupabaseClient,
-  brief: { entity_id: string; content: string; qa_pairs: unknown[]; difficulty_level: number }
+  brief: { entity_id: string; user_id: string; content: string; qa_pairs: unknown[]; difficulty_level: number }
 ): Promise<Brief> {
   const { data, error } = await supabase
     .from('briefs')
@@ -275,6 +275,7 @@ export async function createTestResult(
   result: {
     id?: string
     entity_id: string
+    user_id: string
     session_id: string | null
     question_text: string
     question_type: string

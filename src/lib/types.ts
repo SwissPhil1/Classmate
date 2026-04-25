@@ -159,6 +159,7 @@ export interface QAPair {
 export interface Brief {
   id: string
   entity_id: string
+  user_id: string
   content: string
   /** Snapshot of `content` before the most recent Claude-driven change.
    *  Populated on every merge/regen so the user can undo. Null when the
@@ -172,6 +173,7 @@ export interface Brief {
 export interface TestResultRecord {
   id: string
   entity_id: string
+  user_id: string
   session_id: string | null
   date: string
   question_text: string

@@ -116,6 +116,7 @@ L'anchor DOIT être copié-collé depuis la liste de sections (chaîne identique
           .from('entities')
           .update({ manual_section_anchor: m.anchor })
           .eq('id', m.entity_id)
+          .eq('user_id', user.id)
         if (upErr) {
           console.error('auto-link update error:', upErr)
           continue
