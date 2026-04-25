@@ -440,12 +440,14 @@ export async function getMnemonicEntities(
   userId: string,
   limit: number = 30
 ): Promise<Entity[]> {
+  // No pre_test_done filter: the drill is on-demand, not part of the SRS
+  // queue, so we want to surface mnemonic entities whether or not the user
+  // has done their pretest.
   const { data, error } = await supabase
     .from('entities')
     .select('*, chapter:chapters(*, topic:topics(*)), brief:briefs(content)')
     .eq('user_id', userId)
     .eq('has_mnemonic', true)
-    .eq('pre_test_done', true)
     .in('status', ['active', 'new', 'solid'])
     .order('next_test_date', { ascending: true, nullsFirst: false })
     .limit(limit)
@@ -467,8 +469,24 @@ export async function countMnemonicEntities(
     .select('id', { count: 'exact', head: true })
     .eq('user_id', userId)
     .eq('has_mnemonic', true)
-    .eq('pre_test_done', true)
     .in('status', ['active', 'new', 'solid'])
+  if (error) throw error
+  return count ?? 0
+}
+
+/**
+ * Total brief count for the user — used as a heuristic to decide whether the
+ * "Scan mnemonic flags" empty state is worth showing on the dashboard. If
+ * the user has zero briefs, there's nothing to scan and the card stays hidden.
+ */
+export async function countUserBriefs(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<number> {
+  const { count, error } = await supabase
+    .from('briefs')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
   if (error) throw error
   return count ?? 0
 }

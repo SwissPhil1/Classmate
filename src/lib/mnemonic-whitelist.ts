@@ -20,7 +20,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * To extend: add a new inner array with every reasonable variant a brief
  * generator might emit.
  */
-const CANONICAL_MNEMONICS: readonly (readonly string[])[] = [
+export const CANONICAL_MNEMONICS: readonly (readonly string[])[] = [
   // ── Neuro / Tête & cou ──────────────────────────────────────────
   ["7 Up Coke Down", "7 Up - Coke Down"],
   ["ACGME'S MC", "ACGMES MC"],

@@ -407,12 +407,18 @@ export default function TopicDetailPage() {
                     href={`/chapters/${ch.id}/manual`}
                     className="flex items-center gap-3 px-4 py-2.5 hover:bg-background/50 transition-colors"
                   >
-                    <BookOpen className={`w-4 h-4 flex-shrink-0 ${hasManual ? "text-teal" : "text-muted-foreground"}`} />
+                    <BookOpen className={`w-4 h-4 flex-shrink-0 ${hasManual ? "text-teal" : "text-amber"}`} />
                     <span className="flex-1 min-w-0 text-sm text-foreground truncate">
                       {ch.name}
                     </span>
-                    <span className={`text-[10px] uppercase tracking-wider ${hasManual ? "text-teal" : "text-muted-foreground"}`}>
-                      {hasManual ? "Manuel" : "Vide"}
+                    <span
+                      className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                        hasManual
+                          ? "text-teal bg-teal/10 border border-teal/20"
+                          : "text-amber bg-amber/10 border border-amber/30"
+                      }`}
+                    >
+                      {hasManual ? "Manuel" : "Générer ✨"}
                     </span>
                     <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                   </Link>

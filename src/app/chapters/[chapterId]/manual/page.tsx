@@ -11,6 +11,7 @@ import { createEntity, getSources, getEntities } from "@/lib/supabase/queries";
 import type { Chapter, Topic, EntityType, Source } from "@/lib/types";
 import { parseSections } from "@/lib/brief-parsing";
 import { ChapterClaudeActions } from "@/components/chapter/chapter-claude-actions";
+import { ChapterWorkflowBanner } from "@/components/chapter/chapter-workflow-banner";
 
 interface ProposedEntity {
   name: string;
@@ -338,6 +339,15 @@ export default function ChapterManualPage() {
             )}
           </button>
         </section>
+
+        {/* Pedagogical banner explaining the 3-step workflow to lift this
+            chapter to "Uro-genital quality". Dismissible per chapter. */}
+        {chapter && (
+          <ChapterWorkflowBanner
+            chapterId={chapter.id}
+            hasManual={content.trim().length > 0}
+          />
+        )}
 
         {/* Claude actions: generate manual + auto-link entities + bulk regen */}
         {chapter && topic && (

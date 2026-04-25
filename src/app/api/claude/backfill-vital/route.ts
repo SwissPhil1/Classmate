@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { callClaude, parseClaudeJSON } from '@/lib/claude'
 import { createClient } from '@/lib/supabase/server'
 import { isValidMnemonic } from '@/lib/mnemonic-whitelist'
+import { mnemonicIsNegated } from '@/lib/mnemonic-detection'
 
 // Allow longer execution for the batched backfill (up to ~5 min on Vercel Pro).
 export const maxDuration = 300
@@ -30,52 +31,12 @@ const GENERIC_NAME_PATTERNS: RegExp[] = [
   /^Trouble(s)?\s+/i,
 ]
 
-// Phrases that indicate the brief's mnemonic section explicitly says no
-// specific mnemonic exists — forces has_mnemonic=false regardless of Claude.
-const MNEMONIC_NEGATION_PHRASES = [
-  'pas de mnémonique',
-  'pas de mnemonique',
-  'aucune mnémonique',
-  'aucune mnemonique',
-  'aucun moyen mnémotechnique',
-  'aucun moyen mnemotechnique',
-  'pas de moyen mnémotechnique',
-  'pas de moyen mnemotechnique',
-  'no specific mnemonic',
-]
-
 function isGenericName(name: string): boolean {
   // Allow "Syndrome de X" through — only match bare "Syndrome " at start with
   // nothing specific after. In practice our "Syndrome " entries tend to be
   // "Syndrome de/du...", which ARE specific, so we don't match the generic
   // pattern on those. We only flag leading finding words.
   return GENERIC_NAME_PATTERNS.some((re) => re.test(name))
-}
-
-function extractMnemonicSection(content: string): string | null {
-  const lines = content.split('\n')
-  let capturing = false
-  const buf: string[] = []
-  for (const line of lines) {
-    if (line.startsWith('## ')) {
-      if (capturing) break
-      if (/mn[ée]moni[qQ]ue/i.test(line)) {
-        capturing = true
-        continue
-      }
-    } else if (capturing) {
-      buf.push(line)
-    }
-  }
-  const text = buf.join('\n').trim()
-  return text.length > 0 ? text : null
-}
-
-function mnemonicIsNegated(content: string): boolean {
-  const section = extractMnemonicSection(content)
-  if (!section) return false
-  const lower = section.toLowerCase()
-  return MNEMONIC_NEGATION_PHRASES.some((phrase) => lower.includes(phrase))
 }
 
 interface CandidateInput {

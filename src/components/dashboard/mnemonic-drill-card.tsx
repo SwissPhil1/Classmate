@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Sparkles, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { Sparkles, ChevronDown, ChevronUp, Loader2, ScanSearch } from "lucide-react";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
-import { countMnemonicEntities, getMnemonicEntities } from "@/lib/supabase/queries";
+import {
+  countMnemonicEntities,
+  countUserBriefs,
+  getMnemonicEntities,
+} from "@/lib/supabase/queries";
 import { DailyDrill } from "./daily-drill";
 import type { Entity } from "@/lib/types";
 
@@ -14,21 +19,28 @@ import type { Entity } from "@/lib/types";
  * (the daily drill only surfaces what's due today).
  *
  * Lazy: only loads the count at mount; the full entity list (with brief joins)
- * is fetched when the user expands the card.
+ * is fetched when the user expands the card. When count=0 but the user has
+ * briefs, we surface a "Scan briefs" button that runs the regex backfill.
  */
 export function MnemonicDrillCard() {
   const supabase = createClient();
   const { user } = useUser();
   const [count, setCount] = useState<number | null>(null);
+  const [briefCount, setBriefCount] = useState<number | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [items, setItems] = useState<Entity[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
 
   const loadCount = useCallback(async () => {
     if (!user) return;
     try {
-      const n = await countMnemonicEntities(supabase, user.id);
+      const [n, bn] = await Promise.all([
+        countMnemonicEntities(supabase, user.id),
+        countUserBriefs(supabase, user.id),
+      ]);
       setCount(n);
+      setBriefCount(bn);
     } catch (err) {
       console.error("countMnemonicEntities error:", err);
       setCount(0);
@@ -60,9 +72,65 @@ export function MnemonicDrillCard() {
     setExpanded(false);
   };
 
+  const runScan = async () => {
+    if (scanning) return;
+    setScanning(true);
+    try {
+      const res = await fetch("/api/admin/backfill-mnemonic-flags", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Scan impossible");
+        return;
+      }
+      const { tagged, scanned, already_tagged } = data as {
+        tagged: number;
+        scanned: number;
+        already_tagged: number;
+      };
+      if (tagged === 0 && already_tagged === 0) {
+        toast.message(`Aucune mnémonique whitelist trouvée dans ${scanned} briefs`);
+      } else if (tagged === 0) {
+        toast.message(`Déjà à jour (${already_tagged} entités déjà taguées)`);
+      } else {
+        toast.success(`${tagged} mnémoniques détectées dans ${scanned} briefs`);
+      }
+      await loadCount();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erreur lors du scan");
+    } finally {
+      setScanning(false);
+    }
+  };
+
   if (!user) return null;
   if (count === null) return null;
-  if (count === 0) return null;
+
+  // Empty state: surface the scan button if the user has briefs but zero
+  // tagged mnemonic entities. If they also have zero briefs, hide entirely.
+  if (count === 0) {
+    if (!briefCount || briefCount === 0) return null;
+    return (
+      <div className="bg-card border border-amber/20 rounded-xl px-4 py-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-amber" />
+          <span className="text-sm font-semibold text-foreground">Drill mnémoniques</span>
+        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Aucune mnémonique whitelist détectée. Tes anciens briefs peuvent contenir des
+          mnémos non taguées (MEGA, TORCH, FEGNOMASHIC…).
+        </p>
+        <button
+          type="button"
+          onClick={runScan}
+          disabled={scanning}
+          className="w-full h-10 flex items-center justify-center gap-2 bg-amber/10 border border-amber/30 text-amber rounded-lg text-sm font-medium hover:bg-amber/20 transition-colors disabled:opacity-70"
+        >
+          {scanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanSearch className="w-4 h-4" />}
+          {scanning ? "Scan en cours…" : "Scanner mes briefs"}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
