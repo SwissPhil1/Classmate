@@ -3,30 +3,19 @@
 import { useEffect, useCallback, useMemo } from "react";
 import { useDropzone } from "react-dropzone";
 import { ImagePlus, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-import { toast } from "sonner";
-import { useImageUpload } from "@/hooks/use-image-upload";
-import type { EntityImage } from "@/lib/types";
+import type { UploadFileState } from "@/hooks/use-image-upload";
 
 interface ImageUploadProps {
-  userId: string;
-  entityId: string;
-  /** display_order to assign to the first uploaded image of this batch. */
-  baseDisplayOrder: number;
-  onSaved: (image: EntityImage) => void;
+  /** Trigger an upload — typically the `upload` returned by useImageUpload. */
+  upload: (files: File[], sourceUrl?: string | null) => Promise<void>;
+  /** Live progress map from useImageUpload. */
+  progress: Map<string, UploadFileState>;
+  /** Drop saved entries from the progress map (called automatically on success). */
+  clearCompleted: () => void;
   compact?: boolean;
 }
 
-export function ImageUpload({ userId, entityId, baseDisplayOrder, onSaved, compact = false }: ImageUploadProps) {
-  const { upload, progress, clearCompleted } = useImageUpload({
-    userId,
-    entityId,
-    baseDisplayOrder,
-    onSaved: (image) => {
-      onSaved(image);
-      toast.success("Image ajoutée");
-    },
-  });
-
+export function ImageUpload({ upload, progress, clearCompleted, compact = false }: ImageUploadProps) {
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       if (acceptedFiles.length === 0) return;
@@ -47,27 +36,6 @@ export function ImageUpload({ userId, entityId, baseDisplayOrder, onSaved, compa
     noKeyboard: true,
   });
 
-  // Global paste listener — paste images from clipboard anywhere on the page.
-  useEffect(() => {
-    const handler = (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      const files: File[] = [];
-      for (const item of items) {
-        if (item.type.startsWith("image/")) {
-          const file = item.getAsFile();
-          if (file) files.push(file);
-        }
-      }
-      if (files.length > 0) {
-        e.preventDefault();
-        void upload(files, null);
-      }
-    };
-    document.addEventListener("paste", handler);
-    return () => document.removeEventListener("paste", handler);
-  }, [upload]);
-
   const items = useMemo(() => Array.from(progress.values()), [progress]);
   const hasErrors = items.some((it) => it.status === "error");
   const hasSaved = items.some((it) => it.status === "saved");
@@ -78,16 +46,6 @@ export function ImageUpload({ userId, entityId, baseDisplayOrder, onSaved, compa
     const t = setTimeout(() => clearCompleted(), 2500);
     return () => clearTimeout(t);
   }, [hasSaved, clearCompleted]);
-
-  // Surface error toasts on transition into 'error'.
-  useEffect(() => {
-    for (const it of items) {
-      if (it.status === "error" && it.error && !shownErrors.has(it.fileId)) {
-        toast.error(`${it.fileName}: ${it.error}`);
-        shownErrors.add(it.fileId);
-      }
-    }
-  }, [items]);
 
   return (
     <div className="space-y-2">
@@ -137,9 +95,6 @@ export function ImageUpload({ userId, entityId, baseDisplayOrder, onSaved, compa
     </div>
   );
 }
-
-// Module-level set so we don't show the same error toast twice across renders.
-const shownErrors = new Set<string>();
 
 function StatusIcon({ status }: { status: "compressing" | "uploading" | "saved" | "error" }) {
   if (status === "saved") return <CheckCircle2 className="w-3.5 h-3.5 text-correct" />;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
@@ -14,6 +14,7 @@ import { BriefContent } from "@/components/brief/brief-content";
 import { ReferenceTextEditor } from "@/components/brief/reference-text-editor";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { ImageGallery } from "@/components/ui/image-gallery";
+import { useImageUpload } from "@/hooks/use-image-upload";
 import { ArrowLeft, ExternalLink, ImagePlus, ChevronDown, ChevronRight, Zap, Sparkles, History, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -297,9 +298,43 @@ export default function BriefPage() {
     }
   };
 
-  const handleImageSaved = (image: EntityImage) => {
+  const handleImageSaved = useCallback((image: EntityImage) => {
     setImages((prev) => [...prev, image]);
-  };
+    toast.success("Image ajoutée");
+  }, []);
+
+  // Single uploader instance for both the drop-zone UI and the page-level
+  // paste listener — keeps progress state shared.
+  const uploader = useImageUpload({
+    userId: user?.id ?? "",
+    entityId,
+    baseDisplayOrder: images.length,
+    onSaved: handleImageSaved,
+  });
+
+  // Page-level paste listener — works anywhere on /brief/[entityId], even when
+  // the upload drop-zone is hidden. Auto-opens the panel so the user sees
+  // progress feedback for the pasted images.
+  useEffect(() => {
+    if (!user) return;
+    const handler = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          const f = item.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length === 0) return;
+      e.preventDefault();
+      setShowImageUpload(true);
+      void uploader.upload(files, null);
+    };
+    document.addEventListener("paste", handler);
+    return () => document.removeEventListener("paste", handler);
+  }, [user, uploader]);
 
   const handleImageDelete = async (imageId: string) => {
     const image = images.find((i) => i.id === imageId);
@@ -486,10 +521,9 @@ export default function BriefPage() {
                 </button>
               </div>
               <ImageUpload
-                userId={user.id}
-                entityId={entityId}
-                baseDisplayOrder={images.length}
-                onSaved={handleImageSaved}
+                upload={uploader.upload}
+                progress={uploader.progress}
+                clearCompleted={uploader.clearCompleted}
               />
             </div>
           ) : (

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { compressImage } from '@/lib/image-compression'
 import { uploadEntityImage, getImageUrl } from '@/lib/supabase/storage'
@@ -80,6 +81,7 @@ export function useImageUpload({ userId, entityId, baseDisplayOrder, onSaved }: 
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         setFileState(fileId, { status: 'error', pct: 0, error: message })
+        toast.error(`${file.name}: ${message}`)
         throw err
       }
     },
