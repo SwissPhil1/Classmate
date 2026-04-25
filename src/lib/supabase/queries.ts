@@ -610,6 +610,14 @@ export async function createEntityImage(
     caption?: string | null
     modality?: string | null
     display_order?: number
+    display_name?: string | null
+    tags?: string[]
+    sequence?: string | null
+    source_url?: string | null
+    width?: number | null
+    height?: number | null
+    file_size_bytes?: number | null
+    is_cover?: boolean
   }
 ): Promise<EntityImage> {
   const { data, error } = await supabase
@@ -621,16 +629,51 @@ export async function createEntityImage(
   return data as EntityImage
 }
 
+export type EntityImagePatch = Partial<{
+  caption: string | null
+  modality: string | null
+  display_order: number
+  display_name: string | null
+  tags: string[]
+  sequence: string | null
+  source_url: string | null
+  is_cover: boolean
+}>
+
 export async function updateEntityImage(
   supabase: SupabaseClient,
   imageId: string,
-  updates: { caption?: string | null; modality?: string | null; display_order?: number }
+  updates: EntityImagePatch
 ): Promise<void> {
   const { error } = await supabase
     .from('entity_images')
     .update(updates)
     .eq('id', imageId)
   if (error) throw error
+}
+
+/**
+ * Flip the cover image for an entity. Two sequential UPDATEs to avoid
+ * colliding with the partial unique index `idx_entity_images_cover_per_entity`
+ * (clear the previous cover BEFORE setting the new one).
+ */
+export async function setCoverImage(
+  supabase: SupabaseClient,
+  entityId: string,
+  imageId: string
+): Promise<void> {
+  const { error: clearError } = await supabase
+    .from('entity_images')
+    .update({ is_cover: false })
+    .eq('entity_id', entityId)
+    .eq('is_cover', true)
+  if (clearError) throw clearError
+
+  const { error: setError } = await supabase
+    .from('entity_images')
+    .update({ is_cover: true })
+    .eq('id', imageId)
+  if (setError) throw setError
 }
 
 export async function deleteEntityImage(

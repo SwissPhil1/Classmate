@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
-import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities, getEntityImages, createEntityImage, deleteEntityImage, updateEntityImage, setEntityPriority, createEntityEvent, getEntityEvents, restoreBriefPrevious } from "@/lib/supabase/queries";
+import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities, getEntityImages, deleteEntityImage, updateEntityImage, setCoverImage, setEntityPriority, createEntityEvent, getEntityEvents, restoreBriefPrevious, type EntityImagePatch } from "@/lib/supabase/queries";
 import { extractManualSection } from "@/lib/brief-parsing";
 import { ManualSectionLink } from "@/components/brief/manual-section-link";
 import { ClaudeDiffPreview } from "@/components/brief/claude-diff-preview";
-import { uploadEntityImage, getImageUrl, deleteStorageImage } from "@/lib/supabase/storage";
-import type { Entity, Brief, EntityImage, ImageModality, EntityEvent } from "@/lib/types";
+import { getImageUrl, deleteStorageImage } from "@/lib/supabase/storage";
+import type { Entity, Brief, EntityImage, EntityEvent } from "@/lib/types";
 import { BriefContent } from "@/components/brief/brief-content";
 import { ReferenceTextEditor } from "@/components/brief/reference-text-editor";
 import { ImageUpload } from "@/components/ui/image-upload";
@@ -58,7 +58,6 @@ export default function BriefPage() {
   const [generating, setGenerating] = useState(false);
   const [notes, setNotes] = useState("");
   const [notesSaving, setNotesSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [showImageUpload, setShowImageUpload] = useState(false);
   const [integrating, setIntegrating] = useState(false);
   const [pendingMerge, setPendingMerge] = useState<{ before: string; after: string; changedRatio: number } | null>(null);
@@ -298,37 +297,8 @@ export default function BriefPage() {
     }
   };
 
-  const handleImageUpload = async (file: File, modality: ImageModality | null, caption: string | null) => {
-    if (!entity || !user) return;
-    setUploading(true);
-    try {
-      const storagePath = await uploadEntityImage(supabase, user.id, entity.id, file);
-      const record = await createEntityImage(supabase, {
-        entity_id: entity.id,
-        user_id: user.id,
-        storage_path: storagePath,
-        caption,
-        modality,
-        display_order: images.length,
-      });
-      const url = await getImageUrl(supabase, storagePath);
-      setImages((prev) => [...prev, { ...record, url }]);
-      setShowImageUpload(false);
-      toast.success("Image ajoutée");
-    } catch (err: unknown) {
-      console.error("Image upload error:", err);
-      const message = err instanceof Error ? err.message : String(err);
-      // Show actual error for debugging storage policy issues
-      if (message.includes("security") || message.includes("policy") || message.includes("Bucket") || message.includes("bucket")) {
-        toast.error(`Upload bloqué: ${message}`);
-      } else if (message.includes("trop volumineuse") || message.includes("Format")) {
-        toast.error(message);
-      } else {
-        toast.error(`Erreur lors de l'upload: ${message}`);
-      }
-    } finally {
-      setUploading(false);
-    }
+  const handleImageSaved = (image: EntityImage) => {
+    setImages((prev) => [...prev, image]);
   };
 
   const handleImageDelete = async (imageId: string) => {
@@ -345,14 +315,52 @@ export default function BriefPage() {
     }
   };
 
-  const handleImageUpdate = async (imageId: string, caption: string | null, modality: ImageModality | null) => {
+  const handleImageSave = async (imageId: string, patch: EntityImagePatch) => {
     try {
-      await updateEntityImage(supabase, imageId, { caption, modality });
+      await updateEntityImage(supabase, imageId, patch);
       setImages((prev) =>
-        prev.map((i) => (i.id === imageId ? { ...i, caption, modality } : i))
+        prev.map((i) => (i.id === imageId ? { ...i, ...patch } as EntityImage : i))
       );
     } catch (err) {
       console.error("Image update error:", err);
+      toast.error("Erreur lors de la sauvegarde");
+    }
+  };
+
+  const handleImageSetCover = async (imageId: string) => {
+    if (!entity) return;
+    try {
+      await setCoverImage(supabase, entity.id, imageId);
+      setImages((prev) =>
+        prev.map((i) => ({ ...i, is_cover: i.id === imageId }))
+      );
+      toast.success("Cover mise à jour");
+    } catch (err) {
+      console.error("Set cover error:", err);
+      toast.error("Erreur lors du changement de cover");
+    }
+  };
+
+  const handleImageReorder = async (imageId: string, direction: -1 | 1) => {
+    const idx = images.findIndex((i) => i.id === imageId);
+    if (idx < 0) return;
+    const swapIdx = idx + direction;
+    if (swapIdx < 0 || swapIdx >= images.length) return;
+    const a = images[idx];
+    const b = images[swapIdx];
+    // Swap display_order values. Use a temporary unique value to avoid any
+    // future unique-constraint-on-(entity_id, display_order) collision.
+    const reordered = [...images];
+    reordered[idx] = { ...b, display_order: a.display_order };
+    reordered[swapIdx] = { ...a, display_order: b.display_order };
+    setImages(reordered);
+    try {
+      await updateEntityImage(supabase, a.id, { display_order: b.display_order });
+      await updateEntityImage(supabase, b.id, { display_order: a.display_order });
+    } catch (err) {
+      console.error("Reorder error:", err);
+      toast.error("Erreur lors du déplacement");
+      setImages(images);
     }
   };
 
@@ -457,25 +465,32 @@ export default function BriefPage() {
               <ImageGallery
                 images={images}
                 onDelete={handleImageDelete}
-                onUpdateCaption={handleImageUpdate}
+                onSave={handleImageSave}
+                onSetCover={handleImageSetCover}
+                onReorder={handleImageReorder}
               />
             </div>
           )}
 
-          {showImageUpload ? (
+          {showImageUpload && user ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Ajouter une image
+                  Ajouter des images
                 </p>
                 <button
                   onClick={() => setShowImageUpload(false)}
                   className="text-xs text-muted-foreground hover:text-foreground"
                 >
-                  Annuler
+                  Fermer
                 </button>
               </div>
-              <ImageUpload onUpload={handleImageUpload} uploading={uploading} />
+              <ImageUpload
+                userId={user.id}
+                entityId={entityId}
+                baseDisplayOrder={images.length}
+                onSaved={handleImageSaved}
+              />
             </div>
           ) : (
             <button
@@ -483,7 +498,7 @@ export default function BriefPage() {
               className="flex items-center gap-2 text-sm text-teal hover:text-teal-light transition-colors"
             >
               <ImagePlus className="w-4 h-4" />
-              {images.length > 0 ? "Ajouter une image" : "Ajouter des images (Aunt Minnie, Radiopaedia...)"}
+              {images.length > 0 ? "Ajouter d'autres images" : "Ajouter des images (Aunt Minnie, Radiopaedia...)"}
             </button>
           )}
         </div>
