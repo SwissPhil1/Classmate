@@ -31,7 +31,7 @@ export default function MonthlyPage() {
     const dateFrom = monthAgo.toISOString().split("T")[0];
     const dateTo = now.toISOString().split("T")[0];
 
-    getTestResults(supabase, { dateFrom, dateTo })
+    getTestResults(supabase, user.id, { dateFrom, dateTo })
       .then(setResults)
       .finally(() => setLoading(false));
   }, [user]);

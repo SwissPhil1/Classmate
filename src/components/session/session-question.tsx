@@ -242,6 +242,10 @@ export function SessionQuestion({
               height: null,
               file_size_bytes: null,
               is_cover: false,
+              ai_brief: null,
+              ai_brief_status: "pending",
+              ai_brief_error: null,
+              ai_brief_generated_at: null,
               url,
             } satisfies EntityImage))}
             compact={false}

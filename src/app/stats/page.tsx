@@ -44,7 +44,7 @@ export default function StatsPage() {
   useEffect(() => {
     if (!user) return;
     setLoading(true);
-    Promise.all([getEntities(supabase, user.id), getTestResults(supabase, {})])
+    Promise.all([getEntities(supabase, user.id), getTestResults(supabase, user.id, {})])
       .then(([e, r]) => {
         setEntities(e);
         setResults(r);

@@ -132,6 +132,7 @@ export default function SettingsPage() {
       const { data } = await supabase
         .from("test_results")
         .select("*, entity:entities(name)")
+        .eq("user_id", user!.id)
         .order("date", { ascending: false });
 
       if (!data) return;

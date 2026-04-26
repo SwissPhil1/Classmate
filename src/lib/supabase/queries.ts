@@ -299,9 +299,12 @@ export async function createTestResult(
 
 export async function getTestResults(
   supabase: SupabaseClient,
+  userId: string,
   filters: { entityId?: string; sessionId?: string; dateFrom?: string; dateTo?: string }
 ): Promise<TestResultRecord[]> {
-  let query = supabase.from('test_results').select('*, entity:entities(name, chapter_id, chapter:chapters(name, topic:topics(name))), session:sessions(session_type)')
+  let query = supabase.from('test_results')
+    .select('*, entity:entities(name, chapter_id, chapter:chapters(name, topic:topics(name))), session:sessions(session_type)')
+    .eq('user_id', userId)
   if (filters.entityId) query = query.eq('entity_id', filters.entityId)
   if (filters.sessionId) query = query.eq('session_id', filters.sessionId)
   if (filters.dateFrom) query = query.gte('date', filters.dateFrom)

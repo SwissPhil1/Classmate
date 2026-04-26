@@ -88,7 +88,7 @@ export default function HistoryPage() {
     const dateFrom = getDateFrom(dateRange);
     const dateTo = new Date().toISOString().split("T")[0];
 
-    getTestResults(supabase, { dateFrom, dateTo })
+    getTestResults(supabase, user.id, { dateFrom, dateTo })
       .then(setResults)
       .catch((err) => console.error("History load error:", err))
       .finally(() => setLoading(false));
