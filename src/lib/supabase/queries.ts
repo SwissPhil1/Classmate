@@ -2,7 +2,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import type {
   Entity, EntityImage, Topic, Chapter, Source, Brief, Session, SessionState,
   TestResultRecord, UserSettings, QueueItem, EntityType, SessionType, ExamComponent,
-  TopicHealth, HealthStatus,
+  TopicHealth, HealthStatus, EntityEvent, EntityEventKind, ImageReviewState,
 } from '@/lib/types'
 import { chapterHealth } from '@/lib/spaced-repetition'
 
@@ -97,12 +97,12 @@ export async function getEntities(
   return data as Entity[]
 }
 
-export async function getEntity(supabase: SupabaseClient, entityId: string, userId?: string): Promise<Entity> {
-  let query = supabase
+export async function getEntity(supabase: SupabaseClient, entityId: string, userId: string): Promise<Entity> {
+  const query = supabase
     .from('entities')
     .select('*, chapter:chapters(*, topic:topics(*)), source:sources(*), brief:briefs(*)')
     .eq('id', entityId)
-  if (userId) query = query.eq('user_id', userId)
+    .eq('user_id', userId)
   const { data, error } = await query.single()
   if (error) throw error
   return data as Entity
@@ -178,7 +178,7 @@ export async function getBrief(supabase: SupabaseClient, entityId: string): Prom
 
 export async function upsertBrief(
   supabase: SupabaseClient,
-  brief: { entity_id: string; content: string; qa_pairs: unknown[]; difficulty_level: number }
+  brief: { entity_id: string; user_id: string; content: string; qa_pairs: unknown[]; difficulty_level: number }
 ): Promise<Brief> {
   const { data, error } = await supabase
     .from('briefs')
@@ -275,6 +275,7 @@ export async function createTestResult(
   result: {
     id?: string
     entity_id: string
+    user_id: string
     session_id: string | null
     question_text: string
     question_type: string
@@ -404,6 +405,103 @@ export async function getTopicHealthGrid(
 
     return { topic, chapters: chapterHealthList, overallHealth }
   })
+}
+
+// ─── Priority / Vital items ──────────────────────────────
+export async function getVitalDueToday(
+  supabase: SupabaseClient,
+  userId: string,
+  limit: number = 20
+): Promise<Entity[]> {
+  const today = new Date().toISOString().split('T')[0]
+  const { data, error } = await supabase
+    .from('entities')
+    .select('*, chapter:chapters(*, topic:topics(*)), brief:briefs(content)')
+    .eq('user_id', userId)
+    .eq('priority', 'vital')
+    .eq('pre_test_done', true)
+    .eq('pre_test_queued', false)
+    .in('status', ['active', 'new', 'solid'])
+    .not('next_test_date', 'is', null)
+    .lte('next_test_date', today)
+    .order('next_test_date', { ascending: true })
+    .limit(limit)
+  if (error) throw error
+  return (data ?? []) as Entity[]
+}
+
+/**
+ * On-demand pool for the "drill MMT" mode: every entity the user has with a
+ * recognized mnemonic, regardless of whether it's due today. Differs from
+ * getVitalDueToday() which is gated by next_test_date <= today.
+ */
+export async function getMnemonicEntities(
+  supabase: SupabaseClient,
+  userId: string,
+  limit: number = 30
+): Promise<Entity[]> {
+  // No pre_test_done filter: the drill is on-demand, not part of the SRS
+  // queue, so we want to surface mnemonic entities whether or not the user
+  // has done their pretest.
+  const { data, error } = await supabase
+    .from('entities')
+    .select('*, chapter:chapters(*, topic:topics(*)), brief:briefs(content)')
+    .eq('user_id', userId)
+    .eq('has_mnemonic', true)
+    .in('status', ['active', 'new', 'solid'])
+    .order('next_test_date', { ascending: true, nullsFirst: false })
+    .limit(limit)
+  if (error) throw error
+  return (data ?? []) as Entity[]
+}
+
+/**
+ * Lightweight count of mnemonic-bearing entities for the dashboard card —
+ * doesn't pull joins or briefs, just confirms whether the drill is worth
+ * surfacing.
+ */
+export async function countMnemonicEntities(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<number> {
+  const { count, error } = await supabase
+    .from('entities')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('has_mnemonic', true)
+    .in('status', ['active', 'new', 'solid'])
+  if (error) throw error
+  return count ?? 0
+}
+
+/**
+ * Total brief count for the user — used as a heuristic to decide whether the
+ * "Scan mnemonic flags" empty state is worth showing on the dashboard. If
+ * the user has zero briefs, there's nothing to scan and the card stays hidden.
+ */
+export async function countUserBriefs(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<number> {
+  const { count, error } = await supabase
+    .from('briefs')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+  if (error) throw error
+  return count ?? 0
+}
+
+export async function setEntityPriority(
+  supabase: SupabaseClient,
+  entityId: string,
+  priority: 'normal' | 'vital',
+  source: 'auto' | 'manual'
+): Promise<void> {
+  const { error } = await supabase
+    .from('entities')
+    .update({ priority, priority_source: source })
+    .eq('id', entityId)
+  if (error) throw error
 }
 
 // ─── Weak Items Count ───────────────────────────────────
@@ -574,6 +672,14 @@ export async function createEntityImage(
     caption?: string | null
     modality?: string | null
     display_order?: number
+    display_name?: string | null
+    tags?: string[]
+    sequence?: string | null
+    source_url?: string | null
+    width?: number | null
+    height?: number | null
+    file_size_bytes?: number | null
+    is_cover?: boolean
   }
 ): Promise<EntityImage> {
   const { data, error } = await supabase
@@ -585,16 +691,51 @@ export async function createEntityImage(
   return data as EntityImage
 }
 
+export type EntityImagePatch = Partial<{
+  caption: string | null
+  modality: string | null
+  display_order: number
+  display_name: string | null
+  tags: string[]
+  sequence: string | null
+  source_url: string | null
+  is_cover: boolean
+}>
+
 export async function updateEntityImage(
   supabase: SupabaseClient,
   imageId: string,
-  updates: { caption?: string | null; modality?: string | null; display_order?: number }
+  updates: EntityImagePatch
 ): Promise<void> {
   const { error } = await supabase
     .from('entity_images')
     .update(updates)
     .eq('id', imageId)
   if (error) throw error
+}
+
+/**
+ * Flip the cover image for an entity. Two sequential UPDATEs to avoid
+ * colliding with the partial unique index `idx_entity_images_cover_per_entity`
+ * (clear the previous cover BEFORE setting the new one).
+ */
+export async function setCoverImage(
+  supabase: SupabaseClient,
+  entityId: string,
+  imageId: string
+): Promise<void> {
+  const { error: clearError } = await supabase
+    .from('entity_images')
+    .update({ is_cover: false })
+    .eq('entity_id', entityId)
+    .eq('is_cover', true)
+  if (clearError) throw clearError
+
+  const { error: setError } = await supabase
+    .from('entity_images')
+    .update({ is_cover: true })
+    .eq('id', imageId)
+  if (setError) throw setError
 }
 
 export async function deleteEntityImage(
@@ -606,4 +747,236 @@ export async function deleteEntityImage(
     .delete()
     .eq('id', imageId)
   if (error) throw error
+}
+
+/**
+ * Mark an image as analyzing — used for optimistic UI before the
+ * /api/claude/analyze-image endpoint completes its own status flip.
+ */
+export async function markImageAnalyzing(
+  supabase: SupabaseClient,
+  imageId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('entity_images')
+    .update({ ai_brief_status: 'analyzing', ai_brief_error: null })
+    .eq('id', imageId)
+  if (error) throw error
+}
+
+/**
+ * List images for this user that haven't been analyzed by Claude yet (status
+ * pending) or that errored on a previous attempt. Used by the bulk-analyze
+ * button to backfill old uploads.
+ */
+export async function getPendingImages(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<EntityImage[]> {
+  const { data, error } = await supabase
+    .from('entity_images')
+    .select('*')
+    .eq('user_id', userId)
+    .in('ai_brief_status', ['pending', 'error'])
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as EntityImage[]
+}
+
+// ─── Image quiz SRS (Phase 2) ───────────────────────────────
+
+export interface ImageQuizFilters {
+  topic_id?: string | null
+  chapter_id?: string | null
+  modality?: string | null
+  tags?: string[]
+  srs_mode: 'due' | 'new' | 'all'
+  limit: number
+}
+
+export interface ImageQuizItem {
+  image: EntityImage & {
+    entity_name: string | null
+    chapter_name: string | null
+    topic_name: string | null
+  }
+  review: ImageReviewState | null
+}
+
+/**
+ * Fetch images matching the quiz filters, attach the per-user SRS state.
+ * Sort: due-first (oldest next_review_date), new (no state) interleaved.
+ *
+ * Two-query strategy: first the images (with entity/chapter/topic joins),
+ * then the review_state rows for those images. Merging in JS keeps the SQL
+ * simple and lets RLS handle user_id filtering on both sides.
+ */
+export async function getImagesForQuiz(
+  supabase: SupabaseClient,
+  userId: string,
+  filters: ImageQuizFilters
+): Promise<ImageQuizItem[]> {
+  let q = supabase
+    .from('entity_images')
+    .select('*, entities!inner(id, name, chapter_id, chapters!inner(id, name, topic_id, topics!inner(id, name)))')
+    .eq('user_id', userId)
+    .eq('ai_brief_status', 'done') // only images Claude has actually analyzed
+
+  if (filters.modality) q = q.eq('modality', filters.modality)
+  if (filters.chapter_id) q = q.eq('entities.chapter_id', filters.chapter_id)
+  if (filters.topic_id) q = q.eq('entities.chapters.topic_id', filters.topic_id)
+  if (filters.tags && filters.tags.length > 0) q = q.overlaps('tags', filters.tags)
+
+  // Pull more than needed so we can filter by SRS state in JS, then trim.
+  q = q.limit(Math.max(200, filters.limit * 4))
+
+  const { data: images, error } = await q
+  if (error) throw error
+  if (!images || images.length === 0) return []
+
+  type Joined = EntityImage & {
+    entities?: {
+      id: string
+      name: string
+      chapter_id: string
+      chapters?: { id: string; name: string; topic_id: string; topics?: { id: string; name: string } }
+    }
+  }
+  const flat = (images as unknown as Joined[]).map((img) => ({
+    ...img,
+    entity_name: img.entities?.name ?? null,
+    chapter_name: img.entities?.chapters?.name ?? null,
+    topic_name: img.entities?.chapters?.topics?.name ?? null,
+  }))
+
+  const imageIds = flat.map((i) => i.id)
+  const { data: states, error: stateErr } = await supabase
+    .from('image_review_state')
+    .select('*')
+    .eq('user_id', userId)
+    .in('image_id', imageIds)
+  if (stateErr) throw stateErr
+
+  const stateById = new Map<string, ImageReviewState>()
+  for (const s of (states as ImageReviewState[]) ?? []) stateById.set(s.image_id, s)
+
+  const today = new Date().toISOString().split('T')[0]
+
+  const items: ImageQuizItem[] = flat.map((img) => ({
+    image: img,
+    review: stateById.get(img.id) ?? null,
+  }))
+
+  // SRS mode filtering.
+  let filtered = items
+  if (filters.srs_mode === 'new') {
+    filtered = items.filter((it) => !it.review)
+  } else if (filters.srs_mode === 'due') {
+    filtered = items.filter((it) => {
+      if (!it.review) return true // new = always due
+      if (it.review.status === 'archived') return false
+      if (!it.review.next_review_date) return true
+      return it.review.next_review_date <= today
+    })
+  }
+  // 'all' keeps everything (incl. archived).
+
+  // Sort: due dates ascending (overdue first), nulls (new) at the end —
+  // unless mode is 'new', in which case order doesn't matter much.
+  filtered.sort((a, b) => {
+    const ad = a.review?.next_review_date ?? '9999-12-31'
+    const bd = b.review?.next_review_date ?? '9999-12-31'
+    return ad.localeCompare(bd)
+  })
+
+  return filtered.slice(0, filters.limit)
+}
+
+/**
+ * Apply an SRS update for an image, creating the review_state row if missing.
+ * Pass the calculateNextReview() output (mapped from entity field names to
+ * image field names by the caller).
+ */
+export async function upsertImageReviewState(
+  supabase: SupabaseClient,
+  payload: {
+    image_id: string
+    user_id: string
+    correct_streak: number
+    difficulty_level: number
+    cycle_count: number
+    status: string
+    next_review_date: string | null
+    last_reviewed: string
+    total_reviews: number
+  }
+): Promise<void> {
+  const { error } = await supabase
+    .from('image_review_state')
+    .upsert(payload, { onConflict: 'image_id,user_id' })
+  if (error) throw error
+}
+
+// ─── Entity activity log + undo ────────────────────────────
+export async function createEntityEvent(
+  supabase: SupabaseClient,
+  params: {
+    entity_id: string
+    user_id: string
+    kind: EntityEventKind
+    source_label?: string | null
+    diff_summary?: string | null
+  }
+): Promise<void> {
+  const { error } = await supabase.from('entity_events').insert({
+    entity_id: params.entity_id,
+    user_id: params.user_id,
+    kind: params.kind,
+    source_label: params.source_label ?? null,
+    diff_summary: params.diff_summary ?? null,
+  })
+  if (error) throw error
+}
+
+export async function getEntityEvents(
+  supabase: SupabaseClient,
+  entityId: string,
+  limit = 30
+): Promise<EntityEvent[]> {
+  const { data, error } = await supabase
+    .from('entity_events')
+    .select('*')
+    .eq('entity_id', entityId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return (data ?? []) as EntityEvent[]
+}
+
+/**
+ * Swap `briefs.content` with `briefs.content_previous` so the user can undo
+ * the latest Claude-driven change. Ping-pong: after the swap, the old content
+ * becomes the new `content_previous`, allowing a redo.
+ */
+export async function restoreBriefPrevious(
+  supabase: SupabaseClient,
+  entityId: string
+): Promise<{ content: string; content_previous: string | null }> {
+  const { data: brief, error: fetchErr } = await supabase
+    .from('briefs')
+    .select('content, content_previous')
+    .eq('entity_id', entityId)
+    .single()
+  if (fetchErr) throw fetchErr
+  if (!brief.content_previous) {
+    throw new Error('Aucune version précédente disponible')
+  }
+  const newContent = brief.content_previous as string
+  const newPrevious = brief.content as string
+  const { error: updErr } = await supabase
+    .from('briefs')
+    .update({ content: newContent, content_previous: newPrevious })
+    .eq('entity_id', entityId)
+  if (updErr) throw updErr
+  return { content: newContent, content_previous: newPrevious }
 }

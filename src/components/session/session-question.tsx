@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Check, AlertTriangle, XCircle, StickyNote, ImagePlus, Loader2, Flag } from "lucide-react";
 import { ImageGallery } from "@/components/ui/image-gallery";
+import { PinToDrillButton } from "@/components/ui/pin-to-drill-button";
 import type { EntityImage } from "@/lib/types";
 
 interface SessionQuestionProps {
@@ -233,8 +234,16 @@ export function SessionQuestion({
               modality: null,
               display_order: i,
               created_at: "",
+              display_name: null,
+              tags: [],
+              sequence: null,
+              source_url: null,
+              width: null,
+              height: null,
+              file_size_bytes: null,
+              is_cover: false,
               url,
-            } as EntityImage))}
+            } satisfies EntityImage))}
             compact={false}
           />
         </div>
@@ -324,6 +333,9 @@ export function SessionQuestion({
                   {question.model_answer}
                 </p>
               </div>
+
+              {/* Pin to rapid-fire drill */}
+              <PinToDrillButton entity={entity} />
 
               {/* Feedback */}
               <p className="text-sm text-foreground">{evaluation.feedback}</p>
@@ -437,6 +449,9 @@ export function SessionQuestion({
                   {question.model_answer}
                 </p>
               </div>
+
+              {/* Pin to rapid-fire drill */}
+              <PinToDrillButton entity={entity} />
 
               {/* Note/correction */}
               {noteOpen ? (

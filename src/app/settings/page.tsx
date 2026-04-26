@@ -8,7 +8,8 @@ import { useSettings } from "@/hooks/use-settings";
 import { useTheme } from "@/components/providers/theme-provider";
 import { daysUntil, weekNumber } from "@/lib/spaced-repetition";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Sun, Moon, LogOut } from "lucide-react";
+import { ArrowLeft, Download, Sun, Moon, LogOut, Sparkles, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -17,10 +18,52 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const supabase = createClient();
   const [exporting, setExporting] = useState(false);
+  const [seedingMmt, setSeedingMmt] = useState(false);
+  const [seedProgress, setSeedProgress] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userLoading && !user) router.push("/login");
   }, [userLoading, user, router]);
+
+  const handleInitMnemonics = async () => {
+    if (seedingMmt) return;
+    setSeedingMmt(true);
+    setSeedProgress("Initialisation du catalogue…");
+    try {
+      const seedRes = await fetch("/api/admin/seed-mnemonics", { method: "POST" });
+      const seedData = await seedRes.json();
+      if (!seedRes.ok) {
+        toast.error(seedData.error || "Seed impossible");
+        return;
+      }
+      toast.success(`Catalogue : ${seedData.affected}/${seedData.total} mnémoniques`);
+
+      // Now generate content in batches until none remain pending.
+      let totalGenerated = 0;
+      let safety = 12; // max 12 batches → 240 max, well above 89
+      while (safety-- > 0) {
+        setSeedProgress(`Génération du contenu (${totalGenerated} faits)…`);
+        const genRes = await fetch("/api/claude/generate-mnemonic-content", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ batch_size: 10 }),
+        });
+        const genData = await genRes.json();
+        if (!genRes.ok) {
+          toast.error(genData.error || "Génération interrompue");
+          break;
+        }
+        totalGenerated += genData.generated || 0;
+        if (genData.done) break;
+      }
+      toast.success(`${totalGenerated} mémos générés. Module prêt.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setSeedingMmt(false);
+      setSeedProgress(null);
+    }
+  };
 
   const writtenDays = settings
     ? daysUntil(settings.exam_date_written)
@@ -238,6 +281,27 @@ export default function SettingsPage() {
           >
             {settings?.interleaving_enabled ? "Activé" : "Désactivé"}
           </button>
+        </div>
+
+        {/* Mnemonic module init */}
+        <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+            Module mnémoniques
+          </h2>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Initialise le catalogue des 89 mnémoniques validées et génère le
+            contenu pédagogique via Claude (~$0.50, 90 secondes). Idempotent —
+            re-runner ne re-paie que les mnémos manquantes.
+          </p>
+          <Button
+            onClick={handleInitMnemonics}
+            disabled={seedingMmt}
+            variant="outline"
+            className="w-full h-12 border-amber/40 text-amber hover:bg-amber/10"
+          >
+            {seedingMmt ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+            {seedProgress || "Initialiser le module mnémoniques"}
+          </Button>
         </div>
 
         {/* Export */}

@@ -1,21 +1,44 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
-import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities, getEntityImages, createEntityImage, deleteEntityImage, updateEntityImage } from "@/lib/supabase/queries";
-import { uploadEntityImage, getImageUrl, deleteStorageImage } from "@/lib/supabase/storage";
-import type { Entity, Brief, EntityImage, ImageModality } from "@/lib/types";
+import { getEntity, getBrief, updateEntity, updateBriefContent, getChildEntities, getEntityImages, deleteEntityImage, updateEntityImage, setCoverImage, setEntityPriority, createEntityEvent, getEntityEvents, restoreBriefPrevious, type EntityImagePatch } from "@/lib/supabase/queries";
+import { extractManualSection } from "@/lib/brief-parsing";
+import { ManualSectionLink } from "@/components/brief/manual-section-link";
+import { ClaudeDiffPreview } from "@/components/brief/claude-diff-preview";
+import { getImageUrl, deleteStorageImage } from "@/lib/supabase/storage";
+import type { Entity, Brief, EntityImage, EntityEvent } from "@/lib/types";
 import { BriefContent } from "@/components/brief/brief-content";
 import { ReferenceTextEditor } from "@/components/brief/reference-text-editor";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { ImageGallery } from "@/components/ui/image-gallery";
-import { ArrowLeft, ExternalLink, ImagePlus, ChevronDown, ChevronRight } from "lucide-react";
+import { useImageUpload } from "@/hooks/use-image-upload";
+import { ArrowLeft, ExternalLink, ImagePlus, ChevronDown, ChevronRight, Zap, Sparkles, History, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import Link from "next/link";
+
+function eventKindLabel(kind: EntityEvent["kind"]): string {
+  switch (kind) {
+    case "reference_added":
+      return "Référence ajoutée";
+    case "claude_regenerated":
+      return "Brief régénéré (Claude)";
+    case "claude_merged":
+      return "Brief intégré (Claude merge)";
+    case "anchor_linked":
+      return "Lié à une section du manuel";
+    case "anchor_unlinked":
+      return "Lien à la section retiré";
+    case "brief_reverted":
+      return "Version précédente restaurée";
+    default:
+      return kind;
+  }
+}
 
 export default function BriefPage() {
   const params = useParams();
@@ -36,24 +59,32 @@ export default function BriefPage() {
   const [generating, setGenerating] = useState(false);
   const [notes, setNotes] = useState("");
   const [notesSaving, setNotesSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [showImageUpload, setShowImageUpload] = useState(false);
+  const [integrating, setIntegrating] = useState(false);
+  const [pendingMerge, setPendingMerge] = useState<{ before: string; after: string; changedRatio: number } | null>(null);
+  const [events, setEvents] = useState<EntityEvent[]>([]);
+  const [eventsOpen, setEventsOpen] = useState(false);
+  const [canUndo, setCanUndo] = useState(false);
 
   const isParent = children.length > 0;
 
   useEffect(() => {
+    if (!user) return;
     async function load() {
       try {
-        const e = await getEntity(supabase, entityId);
+        const e = await getEntity(supabase, entityId, user!.id);
         setEntity(e);
         setNotes(e.notes || "");
-        const [b, ch, imgs] = await Promise.all([
+        const [b, ch, imgs, evts] = await Promise.all([
           getBrief(supabase, entityId),
           getChildEntities(supabase, entityId),
           getEntityImages(supabase, entityId),
+          getEntityEvents(supabase, entityId),
         ]);
         setBrief(b);
         setChildren(ch);
+        setEvents(evts);
+        setCanUndo(!!b?.content_previous);
         // Attach signed URLs to images (works with private buckets)
         const imgsWithUrls = await Promise.all(
           imgs.map(async (img) => ({
@@ -69,7 +100,7 @@ export default function BriefPage() {
       }
     }
     load();
-  }, [entityId]);
+  }, [entityId, user, supabase]);
 
   const handleGenerate = async () => {
     if (!entity) return;
@@ -84,6 +115,15 @@ export default function BriefPage() {
           }
         : {};
 
+      // Prefer the linked chapter-manual section over the legacy
+      // per-entity reference_text when both exist. This is the integration
+      // point for the chapter-manual workflow (itération 6).
+      const manualSection = extractManualSection(
+        entity.chapter?.manual_content,
+        entity.manual_section_anchor
+      );
+      const effectiveReference = manualSection ?? entity.reference_text;
+
       const res = await fetch("/api/claude/brief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -92,7 +132,7 @@ export default function BriefPage() {
           entity_type: entity.entity_type,
           chapter: entity.chapter?.name,
           topic: entity.chapter?.topic?.name,
-          reference_text: entity.reference_text,
+          reference_text: effectiveReference,
           notes: entity.notes,
           // Pass existing content so Claude preserves user edits
           existing_content: brief?.content || undefined,
@@ -104,16 +144,146 @@ export default function BriefPage() {
         const { upsertBrief } = await import("@/lib/supabase/queries");
         const saved = await upsertBrief(supabase, {
           entity_id: entity.id,
+          user_id: user!.id,
           content: data.content,
           qa_pairs: data.qa_pairs,
           difficulty_level: entity.difficulty_level,
         });
         setBrief(saved);
+
+        // Auto-tag from Claude meta — only overwrite if user hasn't set a manual priority
+        const meta = data.meta as { has_mnemonic?: boolean; mnemonic_name?: string | null; is_critical?: boolean } | undefined;
+        if (meta) {
+          const entityPatch: Partial<Entity> = {};
+          if (typeof meta.has_mnemonic === "boolean" && meta.has_mnemonic !== entity.has_mnemonic) {
+            entityPatch.has_mnemonic = meta.has_mnemonic;
+          }
+          if (meta.mnemonic_name !== undefined && meta.mnemonic_name !== entity.mnemonic_name) {
+            entityPatch.mnemonic_name = meta.mnemonic_name ?? null;
+          }
+          const shouldBeVital = meta.has_mnemonic === true || meta.is_critical === true;
+          const canAutoSet = entity.priority_source !== "manual";
+          if (canAutoSet && shouldBeVital && entity.priority !== "vital") {
+            entityPatch.priority = "vital";
+            entityPatch.priority_source = "auto";
+          }
+          if (Object.keys(entityPatch).length > 0) {
+            await updateEntity(supabase, entity.id, entityPatch);
+            setEntity({ ...entity, ...entityPatch });
+          }
+        }
       }
     } catch (err) {
       console.error("Brief generation error:", err);
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleTogglePriority = async () => {
+    if (!entity) return;
+    const next = entity.priority === "vital" ? "normal" : "vital";
+    try {
+      await setEntityPriority(supabase, entity.id, next, "manual");
+      setEntity({ ...entity, priority: next, priority_source: "manual" });
+      toast.success(next === "vital" ? "Marqué comme vital" : "Priorité normale");
+    } catch (err) {
+      console.error("Priority toggle error:", err);
+      toast.error("Impossible de mettre à jour la priorité");
+    }
+  };
+
+  const handleIntegrate = async () => {
+    if (!entity || !brief || integrating) return;
+    const manualSection = extractManualSection(
+      entity.chapter?.manual_content,
+      entity.manual_section_anchor
+    );
+    const newMaterial = manualSection ?? entity.reference_text ?? "";
+    if (!newMaterial.trim()) {
+      toast.error("Aucune matière à intégrer (ni section de manuel liée, ni reference_text)");
+      return;
+    }
+    setIntegrating(true);
+    try {
+      const res = await fetch("/api/claude/merge-brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          existing_content: brief.content,
+          new_material: newMaterial,
+          entity_name: entity.name,
+          source_label: entity.manual_section_anchor ?? undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        toast.error(data.error || "Merge impossible");
+        return;
+      }
+      setPendingMerge({
+        before: brief.content,
+        after: data.merged_content,
+        changedRatio: data.changed_ratio ?? 0,
+      });
+    } catch (err) {
+      console.error("Integrate error:", err);
+      toast.error("Merge impossible");
+    } finally {
+      setIntegrating(false);
+    }
+  };
+
+  const handleAcceptMerge = async (finalContent: string) => {
+    if (!entity || !brief || !user || !pendingMerge) return;
+    try {
+      // Store previous content for undo, then update.
+      const { error } = await supabase
+        .from("briefs")
+        .update({
+          content: finalContent,
+          content_previous: brief.content,
+        })
+        .eq("entity_id", entity.id);
+      if (error) throw error;
+      setBrief({ ...brief, content: finalContent, content_previous: brief.content });
+      setCanUndo(true);
+      await createEntityEvent(supabase, {
+        entity_id: entity.id,
+        user_id: user.id,
+        kind: "claude_merged",
+        source_label: entity.manual_section_anchor,
+        diff_summary: `${Math.round(pendingMerge.changedRatio * 100)}% modifié`,
+      });
+      setEvents(await getEntityEvents(supabase, entity.id));
+      setPendingMerge(null);
+      toast.success("Intégré · Annuler disponible ci-dessous");
+    } catch (err) {
+      console.error("Accept merge error:", err);
+      toast.error("Sauvegarde impossible");
+    }
+  };
+
+  const handleRejectMerge = () => {
+    setPendingMerge(null);
+  };
+
+  const handleUndo = async () => {
+    if (!entity || !user || !canUndo) return;
+    try {
+      const { content, content_previous } = await restoreBriefPrevious(supabase, entity.id);
+      setBrief((prev) => (prev ? { ...prev, content, content_previous } : prev));
+      setCanUndo(!!content_previous);
+      await createEntityEvent(supabase, {
+        entity_id: entity.id,
+        user_id: user.id,
+        kind: "brief_reverted",
+      });
+      setEvents(await getEntityEvents(supabase, entity.id));
+      toast.success("Version précédente restaurée");
+    } catch (err) {
+      console.error("Undo error:", err);
+      toast.error(err instanceof Error ? err.message : "Annulation impossible");
     }
   };
 
@@ -130,38 +300,96 @@ export default function BriefPage() {
     }
   };
 
-  const handleImageUpload = async (file: File, modality: ImageModality | null, caption: string | null) => {
-    if (!entity || !user) return;
-    setUploading(true);
-    try {
-      const storagePath = await uploadEntityImage(supabase, user.id, entity.id, file);
-      const record = await createEntityImage(supabase, {
-        entity_id: entity.id,
-        user_id: user.id,
-        storage_path: storagePath,
-        caption,
-        modality,
-        display_order: images.length,
+  const handleImageSaved = useCallback((image: EntityImage) => {
+    setImages((prev) => [...prev, image]);
+    toast.success("Image ajoutée");
+  }, []);
+
+  const handleImageAnalyzed = useCallback(
+    (
+      imageId: string,
+      patch: { ai_brief: import("@/lib/types").ImageAIBrief | null; ai_brief_status: import("@/lib/types").ImageAIBriefStatus; ai_brief_generated_at: string | null }
+    ) => {
+      setImages((prev) =>
+        prev.map((i) =>
+          i.id === imageId
+            ? {
+                ...i,
+                ai_brief: patch.ai_brief,
+                ai_brief_status: patch.ai_brief_status,
+                ai_brief_generated_at: patch.ai_brief_generated_at,
+              }
+            : i
+        )
+      );
+    },
+    []
+  );
+
+  const handleImageReanalyze = useCallback(
+    async (imageId: string) => {
+      // Optimistic UI: flip the badge to "analyzing" before the round-trip.
+      setImages((prev) =>
+        prev.map((i) =>
+          i.id === imageId ? { ...i, ai_brief_status: "analyzing" as const, ai_brief_error: null } : i
+        )
+      );
+      const res = await fetch("/api/claude/analyze-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_id: imageId }),
       });
-      const url = await getImageUrl(supabase, storagePath);
-      setImages((prev) => [...prev, { ...record, url }]);
-      setShowImageUpload(false);
-      toast.success("Image ajoutée");
-    } catch (err: unknown) {
-      console.error("Image upload error:", err);
-      const message = err instanceof Error ? err.message : String(err);
-      // Show actual error for debugging storage policy issues
-      if (message.includes("security") || message.includes("policy") || message.includes("Bucket") || message.includes("bucket")) {
-        toast.error(`Upload bloqué: ${message}`);
-      } else if (message.includes("trop volumineuse") || message.includes("Format")) {
-        toast.error(message);
-      } else {
-        toast.error(`Erreur lors de l'upload: ${message}`);
+      const data = await res.json();
+      if (!res.ok) {
+        handleImageAnalyzed(imageId, {
+          ai_brief: null,
+          ai_brief_status: "error",
+          ai_brief_generated_at: null,
+        });
+        throw new Error(data.error || "Réanalyse impossible");
       }
-    } finally {
-      setUploading(false);
-    }
-  };
+      handleImageAnalyzed(imageId, {
+        ai_brief: data.ai_brief ?? null,
+        ai_brief_status: data.ai_brief_status ?? "done",
+        ai_brief_generated_at: data.ai_brief_generated_at ?? null,
+      });
+    },
+    [handleImageAnalyzed]
+  );
+
+  // Single uploader instance for both the drop-zone UI and the page-level
+  // paste listener — keeps progress state shared.
+  const uploader = useImageUpload({
+    userId: user?.id ?? "",
+    entityId,
+    baseDisplayOrder: images.length,
+    onSaved: handleImageSaved,
+    onAnalyzed: handleImageAnalyzed,
+  });
+
+  // Page-level paste listener — works anywhere on /brief/[entityId], even when
+  // the upload drop-zone is hidden. Auto-opens the panel so the user sees
+  // progress feedback for the pasted images.
+  useEffect(() => {
+    if (!user) return;
+    const handler = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          const f = item.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length === 0) return;
+      e.preventDefault();
+      setShowImageUpload(true);
+      void uploader.upload(files, null);
+    };
+    document.addEventListener("paste", handler);
+    return () => document.removeEventListener("paste", handler);
+  }, [user, uploader]);
 
   const handleImageDelete = async (imageId: string) => {
     const image = images.find((i) => i.id === imageId);
@@ -177,14 +405,52 @@ export default function BriefPage() {
     }
   };
 
-  const handleImageUpdate = async (imageId: string, caption: string | null, modality: ImageModality | null) => {
+  const handleImageSave = async (imageId: string, patch: EntityImagePatch) => {
     try {
-      await updateEntityImage(supabase, imageId, { caption, modality });
+      await updateEntityImage(supabase, imageId, patch);
       setImages((prev) =>
-        prev.map((i) => (i.id === imageId ? { ...i, caption, modality } : i))
+        prev.map((i) => (i.id === imageId ? { ...i, ...patch } as EntityImage : i))
       );
     } catch (err) {
       console.error("Image update error:", err);
+      toast.error("Erreur lors de la sauvegarde");
+    }
+  };
+
+  const handleImageSetCover = async (imageId: string) => {
+    if (!entity) return;
+    try {
+      await setCoverImage(supabase, entity.id, imageId);
+      setImages((prev) =>
+        prev.map((i) => ({ ...i, is_cover: i.id === imageId }))
+      );
+      toast.success("Cover mise à jour");
+    } catch (err) {
+      console.error("Set cover error:", err);
+      toast.error("Erreur lors du changement de cover");
+    }
+  };
+
+  const handleImageReorder = async (imageId: string, direction: -1 | 1) => {
+    const idx = images.findIndex((i) => i.id === imageId);
+    if (idx < 0) return;
+    const swapIdx = idx + direction;
+    if (swapIdx < 0 || swapIdx >= images.length) return;
+    const a = images[idx];
+    const b = images[swapIdx];
+    // Swap display_order values. Use a temporary unique value to avoid any
+    // future unique-constraint-on-(entity_id, display_order) collision.
+    const reordered = [...images];
+    reordered[idx] = { ...b, display_order: a.display_order };
+    reordered[swapIdx] = { ...a, display_order: b.display_order };
+    setImages(reordered);
+    try {
+      await updateEntityImage(supabase, a.id, { display_order: b.display_order });
+      await updateEntityImage(supabase, b.id, { display_order: a.display_order });
+    } catch (err) {
+      console.error("Reorder error:", err);
+      toast.error("Erreur lors du déplacement");
+      setImages(images);
     }
   };
 
@@ -241,6 +507,20 @@ export default function BriefPage() {
               )}
             </div>
           </div>
+          <button
+            onClick={handleTogglePriority}
+            aria-pressed={entity.priority === "vital"}
+            aria-label={entity.priority === "vital" ? "Retirer la priorité vitale" : "Marquer comme vital"}
+            title={entity.priority === "vital" ? "Vital (priorité élevée)" : "Marquer comme vital"}
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium transition-colors flex-shrink-0 ${
+              entity.priority === "vital"
+                ? "bg-amber/15 text-amber border border-amber/30"
+                : "bg-card text-muted-foreground border border-border hover:border-amber/40 hover:text-amber"
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            Vital
+          </button>
         </div>
       </header>
 
@@ -275,25 +555,32 @@ export default function BriefPage() {
               <ImageGallery
                 images={images}
                 onDelete={handleImageDelete}
-                onUpdateCaption={handleImageUpdate}
+                onSave={handleImageSave}
+                onSetCover={handleImageSetCover}
+                onReorder={handleImageReorder}
+                onReanalyze={handleImageReanalyze}
               />
             </div>
           )}
 
-          {showImageUpload ? (
+          {showImageUpload && user ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Ajouter une image
+                  Ajouter des images
                 </p>
                 <button
                   onClick={() => setShowImageUpload(false)}
                   className="text-xs text-muted-foreground hover:text-foreground"
                 >
-                  Annuler
+                  Fermer
                 </button>
               </div>
-              <ImageUpload onUpload={handleImageUpload} uploading={uploading} />
+              <ImageUpload
+                upload={uploader.upload}
+                progress={uploader.progress}
+                clearCompleted={uploader.clearCompleted}
+              />
             </div>
           ) : (
             <button
@@ -301,7 +588,7 @@ export default function BriefPage() {
               className="flex items-center gap-2 text-sm text-teal hover:text-teal-light transition-colors"
             >
               <ImagePlus className="w-4 h-4" />
-              {images.length > 0 ? "Ajouter une image" : "Ajouter des images (Aunt Minnie, Radiopaedia...)"}
+              {images.length > 0 ? "Ajouter d'autres images" : "Ajouter des images (Aunt Minnie, Radiopaedia...)"}
             </button>
           )}
         </div>
@@ -317,6 +604,27 @@ export default function BriefPage() {
                   setBrief({ ...brief, content: newContent });
                 } catch (err) {
                   console.error("Brief update error:", err);
+                }
+              }}
+              onRewriteMnemonic={async (feedback) => {
+                try {
+                  const res = await fetch("/api/claude/rewrite-mnemonic", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ entity_id: entityId, user_feedback: feedback }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok || !data.content) {
+                    toast.error(data.error || "Réécriture impossible");
+                    return null;
+                  }
+                  setBrief({ ...brief, content: data.content });
+                  toast.success("Mnémonique réécrite");
+                  return data.content as string;
+                } catch (err) {
+                  console.error("Rewrite mnemonic error:", err);
+                  toast.error("Réécriture indisponible");
+                  return null;
                 }
               }}
             />
@@ -382,6 +690,118 @@ export default function BriefPage() {
                   Générer le brief
                 </Button>
               </>
+            )}
+          </div>
+        )}
+
+        {/* Chapter-manual section linkage — dominant reference when set */}
+        {entity.chapter && (
+          <div className="mt-6">
+            <ManualSectionLink
+              chapterId={entity.chapter.id}
+              chapterName={entity.chapter.name}
+              manualContent={entity.chapter.manual_content}
+              currentAnchor={entity.manual_section_anchor}
+              onChange={async (anchor) => {
+                await updateEntity(supabase, entity.id, {
+                  manual_section_anchor: anchor,
+                } as Partial<Entity>);
+                setEntity({ ...entity, manual_section_anchor: anchor });
+                if (user) {
+                  await createEntityEvent(supabase, {
+                    entity_id: entity.id,
+                    user_id: user.id,
+                    kind: anchor ? "anchor_linked" : "anchor_unlinked",
+                    source_label: anchor,
+                  });
+                  setEvents(await getEntityEvents(supabase, entity.id));
+                }
+              }}
+            />
+          </div>
+        )}
+
+        {/* Claude integrate — non-destructive merge of linked section / reference_text */}
+        {brief && (
+          <div className="mt-4 flex items-center gap-2 flex-wrap">
+            <Button
+              onClick={handleIntegrate}
+              disabled={integrating || !!pendingMerge}
+              className="bg-teal/10 border border-teal/30 text-teal hover:bg-teal/20"
+              variant="ghost"
+            >
+              <Sparkles className="w-4 h-4 mr-1.5" />
+              {integrating ? "Analyse en cours…" : "Intégrer avec Claude (non-destructif)"}
+            </Button>
+            {canUndo && (
+              <Button
+                onClick={handleUndo}
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <Undo2 className="w-4 h-4 mr-1.5" />
+                Annuler la dernière modification
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* Diff preview after a merge proposal */}
+        {pendingMerge && (
+          <div className="mt-4">
+            <ClaudeDiffPreview
+              before={pendingMerge.before}
+              after={pendingMerge.after}
+              changedRatio={pendingMerge.changedRatio}
+              onAccept={handleAcceptMerge}
+              onReject={handleRejectMerge}
+            />
+          </div>
+        )}
+
+        {/* Activity log — accordion */}
+        {events.length > 0 && (
+          <div className="mt-6 bg-card border border-border rounded-xl">
+            <button
+              onClick={() => setEventsOpen((o) => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 text-sm text-foreground hover:bg-background/50 transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                <History className="w-4 h-4 text-muted-foreground" />
+                Historique ({events.length})
+              </span>
+              {eventsOpen ? (
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              )}
+            </button>
+            {eventsOpen && (
+              <ul className="border-t border-border divide-y divide-border">
+                {events.map((e) => (
+                  <li key={e.id} className="px-4 py-2 text-xs">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-foreground">
+                        {eventKindLabel(e.kind)}
+                        {e.source_label && (
+                          <span className="text-muted-foreground"> · {e.source_label}</span>
+                        )}
+                        {e.diff_summary && (
+                          <span className="text-muted-foreground"> · {e.diff_summary}</span>
+                        )}
+                      </span>
+                      <span className="text-muted-foreground flex-shrink-0">
+                        {new Date(e.created_at).toLocaleString("fr-CH", {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         )}
