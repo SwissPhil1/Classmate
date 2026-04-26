@@ -7,134 +7,164 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *   - Radiology Vibes — curated FRCR/EDiR mnemonic list (Dr. Awal,
  *     with source references to Dahnert, Chapman & Nakielny, Brant & Helms,
  *     RadioGraphics, AJR, Radiopaedia).
- *
- * First 30 entries extracted by NotebookLM from Crack the Core + Core Radiology
- * on 2026-04-22. Remaining entries added 2026-04-22 from Radiology Vibes.
+ *   - ESR EPOS 2024 — European Congress of Radiology mnemonic poster.
  *
  * Any mnemonic tagged by Claude that does not match this list is treated as a
  * hallucination and rejected (has_mnemonic → false, mnemonic_name → null).
  *
- * Each inner array holds the canonical form plus any aliases/variant spellings.
- * Matching is done after normalize() — case-insensitive, punctuation-insensitive.
+ * Each entry holds the canonical form, all variant spellings, and the theme
+ * used to group them in the standalone mnemonic learning module.
  *
- * To extend: add a new inner array with every reasonable variant a brief
- * generator might emit.
+ * Matching is done after normalize() — case- and punctuation-insensitive.
  */
-export const CANONICAL_MNEMONICS: readonly (readonly string[])[] = [
+export interface CanonicalMnemonicEntry {
+  canonical: string;
+  variants: readonly string[];
+  theme: string;
+}
+
+const NEURO = "Neuro / Tête & cou";
+const THORAX = "Thorax / Poumon / Médiastin";
+const CARDIO = "Cardiovasculaire / Vasculaire";
+const ABDO = "Abdomen / Digestif / GU";
+const GYN = "Gynéco-obstétrique";
+const MSK = "Musculo-squelettique";
+const MAMMO = "Mammaire / Signes";
+const PEDIA = "Pédiatrique / Syndromique";
+const NUC = "Nucléaire";
+const MULTI = "Général / Multi-système";
+const DIVERS = "Divers / Règles nommées";
+const ESR = "ESR EPOS 2024";
+
+export const CANONICAL_MNEMONIC_ENTRIES: readonly CanonicalMnemonicEntry[] = [
   // ── Neuro / Tête & cou ──────────────────────────────────────────
-  ["7 Up Coke Down", "7 Up - Coke Down"],
-  ["ACGME'S MC", "ACGMES MC"],
-  ["Basal ICV"],
-  ["CONMAN"],
-  ["FEDS"],
-  ["George Washington Bridge", "GWB"],
-  ["GRAD RAP", "GRADRAP"],
-  ["HEAL"],
-  ["HIPPEL"],
-  ["It Be Iddy Biddy BaBy Doo Doo", "It Be Iddy Biddy, BaBy, Doo-Doo"],
-  ["MAGIC DR", "MAGICDR", "DR MAGIC"],
-  ["MEGA"],
-  ["MOuSTACHE", "MOUSTACHE"],
-  ["MSME", "MISME"],
-  ["O2"],
-  ["Old Elephants Age Gracefully"],
-  ["Oreo Cookie"],
-  ["R2V2"],
-  ["SAME"],
+  { canonical: "7 Up Coke Down", variants: ["7 Up Coke Down", "7 Up - Coke Down"], theme: NEURO },
+  { canonical: "ACGME'S MC", variants: ["ACGME'S MC", "ACGMES MC"], theme: NEURO },
+  { canonical: "Basal ICV", variants: ["Basal ICV"], theme: NEURO },
+  { canonical: "CONMAN", variants: ["CONMAN"], theme: NEURO },
+  { canonical: "FEDS", variants: ["FEDS"], theme: NEURO },
+  { canonical: "George Washington Bridge", variants: ["George Washington Bridge", "GWB"], theme: NEURO },
+  { canonical: "GRAD RAP", variants: ["GRAD RAP", "GRADRAP"], theme: NEURO },
+  { canonical: "HEAL", variants: ["HEAL"], theme: NEURO },
+  { canonical: "HIPPEL", variants: ["HIPPEL"], theme: NEURO },
+  { canonical: "It Be Iddy Biddy BaBy Doo Doo", variants: ["It Be Iddy Biddy BaBy Doo Doo", "It Be Iddy Biddy, BaBy, Doo-Doo"], theme: NEURO },
+  { canonical: "MAGIC DR", variants: ["MAGIC DR", "MAGICDR", "DR MAGIC"], theme: NEURO },
+  { canonical: "MEGA", variants: ["MEGA"], theme: NEURO },
+  { canonical: "MOuSTACHE", variants: ["MOuSTACHE", "MOUSTACHE"], theme: NEURO },
+  { canonical: "MSME", variants: ["MSME", "MISME"], theme: NEURO },
+  { canonical: "O2", variants: ["O2"], theme: NEURO },
+  { canonical: "Old Elephants Age Gracefully", variants: ["Old Elephants Age Gracefully"], theme: NEURO },
+  { canonical: "Oreo Cookie", variants: ["Oreo Cookie"], theme: NEURO },
+  { canonical: "R2V2", variants: ["R2V2"], theme: NEURO },
+  { canonical: "SAME", variants: ["SAME"], theme: NEURO },
 
   // ── Thorax / Poumon / Médiastin ─────────────────────────────────
-  ["4Ts", "4 Ts", "Four Ts"],
-  ["BADSAI"],
-  ["BREAST"],
-  ["CAVITY"],
-  ["CHARM G", "CHARMG"],
-  ["HARSH"],
-  ["MNoP", "MNOP"],
+  { canonical: "4Ts", variants: ["4Ts", "4 Ts", "Four Ts"], theme: THORAX },
+  { canonical: "BADSAI", variants: ["BADSAI"], theme: THORAX },
+  { canonical: "BREAST", variants: ["BREAST"], theme: THORAX },
+  { canonical: "CAVITY", variants: ["CAVITY"], theme: THORAX },
+  { canonical: "CHARM G", variants: ["CHARM G", "CHARMG"], theme: THORAX },
+  { canonical: "HARSH", variants: ["HARSH"], theme: THORAX },
+  { canonical: "MNoP", variants: ["MNoP", "MNOP"], theme: THORAX },
 
   // ── Cardiovasculaire / Vasculaire ───────────────────────────────
-  ["I Love Sex"],
-  ["I'M SLOw", "IM SLOW"],
+  { canonical: "I Love Sex", variants: ["I Love Sex"], theme: CARDIO },
+  { canonical: "I'M SLOw", variants: ["I'M SLOw", "IM SLOW"], theme: CARDIO },
 
   // ── Abdomen / Digestif / GU ─────────────────────────────────────
-  ["COGA"],
-  ["DOPE Gardner", "DOPE"],
-  ["IPS"],
-  ["MAH HOP", "MAHHOP"],
-  ["Michael Jackson"],
-  ["NSAIDs", "NSAIDS"],
-  ["TURbans", "TURBANS", "Turcot"],
+  { canonical: "COGA", variants: ["COGA"], theme: ABDO },
+  { canonical: "DOPE Gardner", variants: ["DOPE Gardner", "DOPE"], theme: ABDO },
+  { canonical: "IPS", variants: ["IPS"], theme: ABDO },
+  { canonical: "MAH HOP", variants: ["MAH HOP", "MAHHOP"], theme: ABDO },
+  { canonical: "Michael Jackson", variants: ["Michael Jackson"], theme: ABDO },
+  { canonical: "NSAIDs", variants: ["NSAIDs", "NSAIDS"], theme: ABDO },
+  { canonical: "TURbans", variants: ["TURbans", "TURBANS", "Turcot"], theme: ABDO },
 
-  // ── Gynéco-obstétrique ───────────────────────────────────────────
-  ["Meigs Syndrome", "Meigs"],
+  // ── Gynéco-obstétrique ──────────────────────────────────────────
+  { canonical: "Meigs Syndrome", variants: ["Meigs Syndrome", "Meigs"], theme: GYN },
 
   // ── Musculo-squelettique ────────────────────────────────────────
-  ["ASP"],
-  ["CRITOE"],
-  ["DAL"],
-  ["FEGNOMASHIC", "FOG MACHINES", "FOGMACHINES"],
-  ["FEMALE"],
-  ["GOATS OF PD", "GOATS PD", "GOATSOFPD"],
-  ["LOSS"],
-  ["MELON"],
-  ["MELT"],
-  ["MUGR"],
-  ["NIMROD"],
-  ["OATs", "OATS"],
-  ["PORK-CHOP", "PORK CHOP", "PORKCHOP", "PORKCHOPS"],
-  ["PROT"],
-  ["SALMON"],
-  ["SALTeR", "SALTER"],
-  ["VACTERL"],
+  { canonical: "ASP", variants: ["ASP"], theme: MSK },
+  { canonical: "CRITOE", variants: ["CRITOE"], theme: MSK },
+  { canonical: "DAL", variants: ["DAL"], theme: MSK },
+  { canonical: "FEGNOMASHIC", variants: ["FEGNOMASHIC", "FOG MACHINES", "FOGMACHINES"], theme: MSK },
+  { canonical: "FEMALE", variants: ["FEMALE"], theme: MSK },
+  { canonical: "GOATS OF PD", variants: ["GOATS OF PD", "GOATS PD", "GOATSOFPD"], theme: MSK },
+  { canonical: "LOSS", variants: ["LOSS"], theme: MSK },
+  { canonical: "MELON", variants: ["MELON"], theme: MSK },
+  { canonical: "MELT", variants: ["MELT"], theme: MSK },
+  { canonical: "MUGR", variants: ["MUGR"], theme: MSK },
+  { canonical: "NIMROD", variants: ["NIMROD"], theme: MSK },
+  { canonical: "OATs", variants: ["OATs", "OATS"], theme: MSK },
+  { canonical: "PORK-CHOP", variants: ["PORK-CHOP", "PORK CHOP", "PORKCHOP", "PORKCHOPS"], theme: MSK },
+  { canonical: "PROT", variants: ["PROT"], theme: MSK },
+  { canonical: "SALMON", variants: ["SALMON"], theme: MSK },
+  { canonical: "SALTeR", variants: ["SALTeR", "SALTER"], theme: MSK },
+  { canonical: "VACTERL", variants: ["VACTERL"], theme: MSK },
 
-  // ── Mammaire / Signes ──────────────────────────────────────────
-  ["Lead Sinks Muffins Rise", "Lead Sinks, Muffins Rise"],
-  ['Schat"B"ki Ring', "Schatzki Ring", "Schatzki"],
-  ["Ursula"],
+  // ── Mammaire / Signes ───────────────────────────────────────────
+  { canonical: "Lead Sinks Muffins Rise", variants: ["Lead Sinks Muffins Rise", "Lead Sinks, Muffins Rise"], theme: MAMMO },
+  { canonical: 'Schat"B"ki Ring', variants: ['Schat"B"ki Ring', "Schatzki Ring", "Schatzki"], theme: MAMMO },
+  { canonical: "Ursula", variants: ["Ursula"], theme: MAMMO },
 
   // ── Pédiatrique / Syndromique ───────────────────────────────────
-  ["CHARGE"],
-  ["PHACES"],
+  { canonical: "CHARGE", variants: ["CHARGE"], theme: PEDIA },
+  { canonical: "PHACES", variants: ["PHACES"], theme: PEDIA },
 
   // ── Nucléaire ───────────────────────────────────────────────────
-  ["I Lived Bitch"],
+  { canonical: "I Lived Bitch", variants: ["I Lived Bitch"], theme: NUC },
 
-  // ── Général / Physique / Syndromique multi-système ──────────────
-  ["WWII", "World War II", "WW2"],
-  ["CT-MRI-PET", "CT MRI PET", "CTMRIPET"],
-  ["TEACH"],
-  ["3Ps", "Pit-Para-Pan", "Pit Para Pan"],
-  ["1M 2P", "Me-Para-Pheo"],
-  ["1P 2M", "Me-MM-Pheo"],
+  // ── Général / Multi-système ─────────────────────────────────────
+  { canonical: "WWII", variants: ["WWII", "World War II", "WW2"], theme: MULTI },
+  { canonical: "CT-MRI-PET", variants: ["CT-MRI-PET", "CT MRI PET", "CTMRIPET"], theme: MULTI },
+  { canonical: "TEACH", variants: ["TEACH"], theme: MULTI },
+  { canonical: "3Ps", variants: ["3Ps", "Pit-Para-Pan", "Pit Para Pan"], theme: MULTI },
+  { canonical: "1M 2P", variants: ["1M 2P", "Me-Para-Pheo"], theme: MULTI },
+  { canonical: "1P 2M", variants: ["1P 2M", "Me-MM-Pheo"], theme: MULTI },
 
   // ── Divers / Règles nommées ─────────────────────────────────────
-  ["Rule of 3s", "Rule of 3", "Rule of Threes"],
+  { canonical: "Rule of 3s", variants: ["Rule of 3s", "Rule of 3", "Rule of Threes"], theme: DIVERS },
 
   // ── ESR EPOS — European Congress of Radiology poster (2024) ─────
-  // Curated radiology mnemonic poster with CT/MRI case illustrations.
-  ["Blood Can Be Very Bad"],
-  ["VITAMIN", "VITAMIN C", "VITAMIN CD", "VITAMIN C&D", "VITAMIN CDEF"],
-  ["PACHI MENINGES", "PACHI"],
-  ["LAMP CAMP"],
-  ["My Best Friend is Pretty Cool", "My Best Friend Is Pretty Cool"],
-  ["SEAL"],
-  ["Normal BIRTH", "BIRTH"],
-  ["STURGE CAPS"],
-  ["STOMACH"],
-  ["Jefferson Bit Off A Hangman's Thumb", "Jefferson Bit Off A Hangmans Thumb"],
-  ["SMALL MEN"],
-  ["I HEAL", "IHEAL"],
-  ["CRESP"],
-  ["ABCDEFGHI"],
-  ["CARPETS"],
-  ["Thanks So Much"],
-  ["METAL"],
-  ["HALT"],
-  ["CHIMP"],
-  ["Grovelling Surgeons Expect Immediate CT Scans", "Grovelling Surgeons"],
-  ["ChIPS", "CHIPS"],
-  ["L SHAPE", "L-SHAPE"],
-  ["PROMS"],
+  { canonical: "Blood Can Be Very Bad", variants: ["Blood Can Be Very Bad"], theme: ESR },
+  { canonical: "VITAMIN", variants: ["VITAMIN", "VITAMIN C", "VITAMIN CD", "VITAMIN C&D", "VITAMIN CDEF"], theme: ESR },
+  { canonical: "PACHI MENINGES", variants: ["PACHI MENINGES", "PACHI"], theme: ESR },
+  { canonical: "LAMP CAMP", variants: ["LAMP CAMP"], theme: ESR },
+  { canonical: "My Best Friend is Pretty Cool", variants: ["My Best Friend is Pretty Cool", "My Best Friend Is Pretty Cool"], theme: ESR },
+  { canonical: "SEAL", variants: ["SEAL"], theme: ESR },
+  { canonical: "Normal BIRTH", variants: ["Normal BIRTH", "BIRTH"], theme: ESR },
+  { canonical: "STURGE CAPS", variants: ["STURGE CAPS"], theme: ESR },
+  { canonical: "STOMACH", variants: ["STOMACH"], theme: ESR },
+  { canonical: "Jefferson Bit Off A Hangman's Thumb", variants: ["Jefferson Bit Off A Hangman's Thumb", "Jefferson Bit Off A Hangmans Thumb"], theme: ESR },
+  { canonical: "SMALL MEN", variants: ["SMALL MEN"], theme: ESR },
+  { canonical: "I HEAL", variants: ["I HEAL", "IHEAL"], theme: ESR },
+  { canonical: "CRESP", variants: ["CRESP"], theme: ESR },
+  { canonical: "ABCDEFGHI", variants: ["ABCDEFGHI"], theme: ESR },
+  { canonical: "CARPETS", variants: ["CARPETS"], theme: ESR },
+  { canonical: "Thanks So Much", variants: ["Thanks So Much"], theme: ESR },
+  { canonical: "METAL", variants: ["METAL"], theme: ESR },
+  { canonical: "HALT", variants: ["HALT"], theme: ESR },
+  { canonical: "CHIMP", variants: ["CHIMP"], theme: ESR },
+  { canonical: "Grovelling Surgeons Expect Immediate CT Scans", variants: ["Grovelling Surgeons Expect Immediate CT Scans", "Grovelling Surgeons"], theme: ESR },
+  { canonical: "ChIPS", variants: ["ChIPS", "CHIPS"], theme: ESR },
+  { canonical: "L SHAPE", variants: ["L SHAPE", "L-SHAPE"], theme: ESR },
+  { canonical: "PROMS", variants: ["PROMS"], theme: ESR },
 ];
+
+/**
+ * The 12 themes used to group mnemonics in the catalogue. Order matters for
+ * display — kept stable across additions.
+ */
+export const MNEMONIC_THEMES: readonly string[] = [
+  NEURO, THORAX, CARDIO, ABDO, GYN, MSK, MAMMO, PEDIA, NUC, MULTI, DIVERS, ESR,
+];
+
+/**
+ * Backward-compatible export — derived from the typed entries. Existing callers
+ * (regex backfill, isValidMnemonic) continue to receive `string[][]`.
+ */
+export const CANONICAL_MNEMONICS: readonly (readonly string[])[] =
+  CANONICAL_MNEMONIC_ENTRIES.map((e) => e.variants);
 
 function normalize(name: string): string {
   return name
@@ -149,7 +179,7 @@ function normalize(name: string): string {
 }
 
 const NORMALIZED_SET: ReadonlySet<string> = new Set(
-  CANONICAL_MNEMONICS.flatMap((variants) => variants.map(normalize))
+  CANONICAL_MNEMONIC_ENTRIES.flatMap((e) => e.variants.map(normalize))
 );
 
 /**
@@ -165,9 +195,8 @@ export function isValidMnemonic(name: string | null | undefined): boolean {
  * The full list of canonical names (first variant of each entry), for display
  * purposes e.g. on a validation page.
  */
-export const CANONICAL_MNEMONIC_NAMES: readonly string[] = CANONICAL_MNEMONICS.map(
-  (v) => v[0]
-);
+export const CANONICAL_MNEMONIC_NAMES: readonly string[] =
+  CANONICAL_MNEMONIC_ENTRIES.map((e) => e.canonical);
 
 export interface InvalidMnemonicRow {
   entity_id: string;

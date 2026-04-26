@@ -313,3 +313,45 @@ export interface TopicHealth {
   }[]
   overallHealth: HealthStatus
 }
+
+// ─── Mnemonic Module ─────────────────────────────────────
+export type MnemonicContentStatus = 'pending' | 'generated' | 'reviewed'
+
+export interface Mnemonic {
+  id: string
+  canonical_name: string
+  theme: string
+  variants: string[]
+  content_md: string | null
+  content_status: MnemonicContentStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface MnemonicProgress {
+  id: string
+  user_id: string
+  mnemonic_id: string
+  status: 'new' | 'active' | 'solid' | 'archived'
+  correct_streak: number
+  difficulty_level: DifficultyLevel
+  cycle_count: number
+  last_reviewed: string | null
+  next_review_date: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MnemonicWithProgress extends Mnemonic {
+  progress: MnemonicProgress | null
+}
+
+export interface MnemonicProgressCounts {
+  total: number
+  new_count: number
+  active_count: number
+  solid_count: number
+  archived_count: number
+  due_today: number
+  never_seen: number
+}
