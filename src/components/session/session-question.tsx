@@ -234,8 +234,16 @@ export function SessionQuestion({
               modality: null,
               display_order: i,
               created_at: "",
+              display_name: null,
+              tags: [],
+              sequence: null,
+              source_url: null,
+              width: null,
+              height: null,
+              file_size_bytes: null,
+              is_cover: false,
               url,
-            } as EntityImage))}
+            } satisfies EntityImage))}
             compact={false}
           />
         </div>
