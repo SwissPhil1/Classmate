@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { callClaude, callClaudeWithVision, parseClaudeJSON } from '@/lib/claude'
 import type { ClaudePretestResponse } from '@/lib/types'
 import { createClient } from '@/lib/supabase/server'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,6 +13,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { entity_name, entity_type, chapter, topic, reference_text, notes, is_synthesis, children_names, children_references, has_images, image_urls } = await request.json()
+    const prelude = await resolveCoachPrelude(supabase)
 
     // Synthesis mode: parent entity pretest
     if (is_synthesis && children_names?.length > 0) {
@@ -20,7 +22,7 @@ export async function POST(request: NextRequest) {
         return `- ${name}${ref ? `: ${ref.substring(0, 800)}` : ''}`
       }).join('\n')
 
-      const synthPrompt = `Tu es un coach FMH2. Génère un pré-test de synthèse sur le groupe: ${entity_name}.
+      const synthPrompt = `${prelude} Génère un pré-test de synthèse sur le groupe: ${entity_name}.
 Le candidat n'a PAS encore étudié en détail — la tentative échouée est intentionnelle.
 
 Sous-entités du groupe:
@@ -68,7 +70,7 @@ Adapte la question en fonction de CE QUE MONTRENT les images:
 - NE PAS demander de décrire la modalité ou la technique — l'image parle d'elle-même.`
       : ''
 
-    const systemPrompt = `Tu es un coach expert pour l'examen FMH2 de radiologie suisse. Génère une question de pré-test froid sur: ${entity_name}.
+    const systemPrompt = `${prelude} Génère une question de pré-test froid sur: ${entity_name}.
 Le candidat n'a PAS encore étudié cette entité — la tentative échouée est intentionnelle et améliore l'apprentissage ultérieur.
 ${imageInstructions}
 Type selon entity_type:

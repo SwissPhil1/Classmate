@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { callClaude } from '@/lib/claude'
 import { createClient } from '@/lib/supabase/server'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 /**
  * Generate a Claude-authored chapter manual (long-form markdown) covering
@@ -71,11 +72,13 @@ export async function POST(request: NextRequest) {
       .map((e: { name: string; entity_type: string }) => `- ${e.name} (${e.entity_type})`)
       .join('\n')
 
-    const referenceBlock = body.mode === 'from_reference'
-      ? `\n\nTEXTE DE RÉFÉRENCE FOURNI (à restructurer en restant FIDÈLE aux faits) :\n\n${body.reference_text}\n\nRÈGLE ABSOLUE : tous les faits médicaux (signes d'imagerie, critères, signal IRM, densité scanner, épidémiologie) DOIVENT venir de ce texte. Tu peux reformater, traduire, structurer, ajouter une mnémonique reconnue. Tu ne dois PAS inventer ou ajouter de faits non présents.`
-      : `\n\nMODE: utilise tes connaissances générales en radiologie (niveau FMH2 suisse). Ne mentionne que des faits, signes et critères CONSENSUELS et bien établis (Radiopaedia, Crack the Core, Core Radiology, ESR EPOS). En cas de doute sur un chiffre/critère, l'OMETTRE plutôt que d'inventer.`
+    const prelude = await resolveCoachPrelude(supabase)
 
-    const systemPrompt = `Tu es radiologue FMH suisse expert et coach pour l'examen oral FMH2. Tu rédiges un MANUEL DE CHAPITRE long-form en français, qui servira de référence dominante pour générer ensuite des briefs de révision par entité.
+    const referenceBlock = body.mode === 'from_reference'
+      ? `\n\nTEXTE DE RÉFÉRENCE FOURNI (à restructurer en restant FIDÈLE aux faits) :\n\n${body.reference_text}\n\nRÈGLE ABSOLUE : tous les faits médicaux DOIVENT venir de ce texte. Tu peux reformater, traduire, structurer, ajouter une mnémonique reconnue. Tu ne dois PAS inventer ou ajouter de faits non présents.`
+      : `\n\nMODE: utilise tes connaissances générales de la spécialité. Ne mentionne que des faits, signes et critères CONSENSUELS et bien établis. En cas de doute sur un chiffre/critère, l'OMETTRE plutôt que d'inventer.`
+
+    const systemPrompt = `${prelude} Tu rédiges un MANUEL DE CHAPITRE long-form en français, qui servira de référence dominante pour générer ensuite des briefs de révision par entité.
 
 CONTEXTE:
 - Thème: ${topicName}
@@ -128,7 +131,7 @@ Si une mnémonique reconnue couvre plusieurs entités du chapitre, l'expliciter 
 Si le chapitre implique des protocoles standards (ex: Uro-TDM 4 phases, washout surrénalien, IRM prostate multiparamétrique), un mini-bloc par protocole.
 
 CONTRAINTES STRICTES:
-- Tout en français, niveau FMH2 suisse.
+- Tout en français.
 - Markdown propre, headers # et ## et ###.
 - Les noms d'entités dans les ## DOIVENT être identiques à ceux fournis (copie-colle).
 - Pas de méta-commentaires, pas de "voici votre manuel". Le markdown brut, rien d'autre.

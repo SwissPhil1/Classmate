@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { callClaude, parseClaudeJSON } from '@/lib/claude'
 import type { ClaudeEvaluateResponse } from '@/lib/types'
 import { createClient } from '@/lib/supabase/server'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,11 +14,13 @@ export async function POST(request: NextRequest) {
 
     const { entity_name, question, model_answer, key_points, user_answer, question_type, notes } = await request.json()
 
+    const prelude = await resolveCoachPrelude(supabase)
+
     const notesBlock = notes
       ? `\nCorrections du candidat (ces corrections priment sur la réponse modèle si en contradiction): ${notes}`
       : ''
 
-    const systemPrompt = `Évalue cette réponse d'examen FMH2 strictement.
+    const systemPrompt = `${prelude} Évalue strictement la réponse de ton candidat.
 Entité: ${entity_name}
 Question: ${question}
 Réponse modèle: ${model_answer}

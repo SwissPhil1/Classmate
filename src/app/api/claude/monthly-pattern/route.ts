@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { callClaude } from '@/lib/claude'
 import { createClient } from '@/lib/supabase/server'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,8 +12,9 @@ export async function POST(request: NextRequest) {
     }
 
     const { results, entities, month_number } = await request.json()
+    const prelude = await resolveCoachPrelude(supabase)
 
-    const systemPrompt = `Analyse ces résultats d'étude radiologie FMH2 pour le mois ${month_number}.
+    const systemPrompt = `${prelude} Analyse ces résultats d'étude pour le mois ${month_number}.
 Output structuré:
 1. Entités consolidées vs actives par thème
 2. Faiblesses systématiques identifiées

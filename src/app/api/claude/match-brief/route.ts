@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    const systemPrompt = `Tu es un assistant médical. Analyse si la nouvelle entité de radiologie correspond ou chevauche des entités existantes.
+    const systemPrompt = `Tu es un assistant médical. Analyse si la nouvelle entité correspond ou chevauche des entités existantes.
 
 Nouvelle entité: "${entity_name}"
 ${reference_text ? `Contexte de référence (extrait): ${reference_text.substring(0, 500)}` : ''}

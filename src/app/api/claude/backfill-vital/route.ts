@@ -3,6 +3,7 @@ import { callClaude, parseClaudeJSON } from '@/lib/claude'
 import { createClient } from '@/lib/supabase/server'
 import { isValidMnemonic } from '@/lib/mnemonic-whitelist'
 import { mnemonicIsNegated } from '@/lib/mnemonic-detection'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 // Allow longer execution for the batched backfill (up to ~5 min on Vercel Pro).
 export const maxDuration = 300
@@ -75,6 +76,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}))
     const dryRun: boolean = body?.dry_run === true
 
+    const prelude = await resolveCoachPrelude(supabase)
+
     // Eligible: has a brief, not manually pinned
     const { data: rawEntities, error } = await supabase
       .from('entities')
@@ -133,7 +136,7 @@ export async function POST(request: NextRequest) {
         }
       })
 
-      const evaluations = await evaluateBatch(candidates)
+      const evaluations = await evaluateBatch(candidates, prelude)
 
       for (const ev of evaluations) {
         const cand = candidates[ev.idx]
@@ -213,7 +216,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function evaluateBatch(candidates: CandidateInput[]): Promise<ClaudeEvaluation[]> {
+async function evaluateBatch(candidates: CandidateInput[], prelude: string): Promise<ClaudeEvaluation[]> {
   const list = candidates.map((c) => ({
     idx: c.idx,
     name: c.name,
@@ -223,7 +226,7 @@ async function evaluateBatch(candidates: CandidateInput[]): Promise<ClaudeEvalua
     brief_mnemonic_is_negated: c.brief_mnemonic_is_negated,
   }))
 
-  const systemPrompt = `Tu es un radiologue expert et coach pour l'examen FMH2 suisse. Évalue cette liste d'entités radiologiques (avec leur brief abrégé) et identifie sélectivement :
+  const systemPrompt = `${prelude} Évalue cette liste d'entités (avec leur brief abrégé) et identifie sélectivement :
 
 1) **is_vital = true** uniquement pour les entités à FORTE asymétrie clinique : "can't miss", urgences STAT, diagnostics dont l'omission a des conséquences immédiates pour le patient. Exemples typiques : dissection aortique, embolie pulmonaire, pneumothorax sous tension, AVC hémorragique / ischémique, hémorragie sous-arachnoïdienne, ischémie mésentérique, abcès cérébral, méningite/encéphalite, ostéomyélite aiguë, fracture instable du rachis, urgences pédiatriques (volvulus, intussusception, abus, malformations critiques), syndrome compartimental, dissection de carotide, NSTEMI / STEMI, sepsis sur abcès, PID grave, occlusion intestinale haute, perforation digestive. EXCLURE les diagnostics non-urgents même importants académiquement (variantes anatomiques, tumeurs bénignes, pathologies chroniques stables).
 

@@ -3,6 +3,7 @@ import { callClaude, parseClaudeJSON, queueBriefGeneration } from '@/lib/claude'
 import type { QAPair } from '@/lib/types'
 import { createClient } from '@/lib/supabase/server'
 import { isValidMnemonic } from '@/lib/mnemonic-whitelist'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 interface BriefMeta {
   has_mnemonic: boolean
@@ -75,6 +76,8 @@ export async function POST(request: NextRequest) {
 
     const { entity_name, entity_type, chapter, topic, reference_text, notes, existing_content, is_synthesis, children_names, children_references, audit_feedback } = await request.json()
 
+    const prelude = await resolveCoachPrelude(supabase)
+
     // Synthesis brief for parent entities
     if (is_synthesis && children_names?.length > 0) {
       const result = await queueBriefGeneration(async () => {
@@ -83,7 +86,7 @@ export async function POST(request: NextRequest) {
           return `### ${name}\n${ref ? ref.substring(0, 2000) : '(pas de référence fournie)'}`
         }).join('\n\n')
 
-        const synthPrompt = `Tu es un radiologue expert et coach FMH2 suisse. Génère un BRIEF DE SYNTHÈSE pour le groupe: ${entity_name} (chapitre: ${chapter}, thème: ${topic}).
+        const synthPrompt = `${prelude} Génère un BRIEF DE SYNTHÈSE pour le groupe: ${entity_name} (chapitre: ${chapter}, thème: ${topic}).
 
 Ce groupe contient les sous-entités suivantes avec leurs références:
 ${childrenBlock}
@@ -167,10 +170,9 @@ Tu ne dois PAS:
         ? `\n\nAUDIT À INTÉGRER — le candidat a lancé un audit qualité et voici les manques identifiés. Tu DOIS les intégrer dans le brief généré. Reste SOBRE et CONCIS — complète sans bloat, garde le format strict. Si un regroupement étiologique est suggéré, organise la section DDx/Mnémonique selon ce regroupement :\n${audit_feedback}`
         : ''
 
-      const systemPrompt = `Tu es un radiologue expert et coach pour l'examen FMH2 suisse. Génère un brief d'étude pour: ${entity_name} (chapitre: ${chapter}, thème: ${topic}, type: ${entity_type}).
+      const systemPrompt = `${prelude} Génère un brief d'étude pour: ${entity_name} (chapitre: ${chapter}, thème: ${topic}, type: ${entity_type}).
 
 IMPORTANT: Tout le contenu en français.
-Contexte FMH2 suisse — niveau attendu: médecin spécialiste en formation dernière année.
 ${referenceBlock}${notesBlock}${existingContentBlock}${auditBlock}
 
 Format selon entity_type:

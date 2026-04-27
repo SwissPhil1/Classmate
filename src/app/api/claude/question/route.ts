@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { callClaude, callClaudeWithVision, parseClaudeJSON } from '@/lib/claude'
 import type { ClaudeQuestionResponse } from '@/lib/types'
 import { createClient } from '@/lib/supabase/server'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,6 +13,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { entity_name, entity_type, cycle_count, difficulty_level, chapter, topic, exam_component, notes, reference_text, is_synthesis, children_names, children_references, has_images, image_urls } = await request.json()
+    const prelude = await resolveCoachPrelude(supabase)
 
     // Synthesis mode: parent entity with children
     if (is_synthesis && children_names?.length > 0) {
@@ -20,7 +22,7 @@ export async function POST(request: NextRequest) {
         return `### ${name}\n${ref ? ref.substring(0, 1500) : '(pas de référence)'}`
       }).join('\n\n')
 
-      const synthPrompt = `Génère une question de SYNTHÈSE / COMPARAISON niveau FMH2 sur le groupe: ${entity_name}.
+      const synthPrompt = `${prelude} Génère une question de SYNTHÈSE / COMPARAISON sur le groupe: ${entity_name}.
 Difficulté ${difficulty_level}, cycle ${cycle_count}.
 
 Ce groupe contient les sous-entités suivantes:
@@ -73,7 +75,7 @@ Adapte la question en fonction de CE QUE MONTRENT les images:
 - La réponse modèle doit correspondre à ce que montre RÉELLEMENT l'image. Ne PAS inventer de pathologie si l'image est normale.\n`
       : ''
 
-    const systemPrompt = `Génère une question de re-test froid niveau FMH2 sur: ${entity_name}.
+    const systemPrompt = `${prelude} Génère une question de re-test froid sur: ${entity_name}.
 Difficulté ${difficulty_level}, cycle ${cycle_count}.
 ${imageBlock}${referenceBlock}
 

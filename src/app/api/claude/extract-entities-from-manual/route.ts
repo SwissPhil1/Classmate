@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { callClaude, parseClaudeJSON } from '@/lib/claude'
 import { createClient } from '@/lib/supabase/server'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 /**
  * Extract study entities from a chapter manual. Given the manual's markdown
@@ -42,7 +43,9 @@ export async function POST(request: NextRequest) {
       .map((a, i) => `${i + 1}. ${a}`)
       .join('\n')
 
-    const systemPrompt = `Tu extrais des entités d'étude à partir d'un manuel de chapitre de radiologie.
+    const prelude = await resolveCoachPrelude(supabase)
+
+    const systemPrompt = `${prelude} Tu extrais des entités d'étude à partir d'un manuel de chapitre.
 
 CONTEXTE:
 - Thème: ${topic_name || '(non spécifié)'}
@@ -66,7 +69,7 @@ RÈGLES STRICTES:
 1. Ne crée PAS d'entité pour les sections purement méta (tables des matières, "Méta-règles oral" = section contexte, pas une entité — saute-la).
 2. Préfère 1 entité bien définie à 3 entités fragmentées. Regroupe les variantes d'un même diagnostic.
 3. Ne crée PAS d'entité pour une mnémonique seule (ex: COAT, POSTCARDS) — celles-ci seront traitées à part.
-4. Chaque entité doit matérialiser un concept qu'un candidat FMH2 devrait pouvoir réciter en 90 secondes à l'oral.
+4. Chaque entité doit matérialiser un concept que ton candidat devrait pouvoir réciter en 90 secondes à l'oral.
 5. Le \`section_anchor\` DOIT être identique à un élément de la liste ci-dessus (copie-colle).
 6. Vise 10-25 entités pour un manuel complet. Moins = tu rates du contenu. Plus = tu sur-fragmentes.
 

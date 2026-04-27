@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { callClaude } from '@/lib/claude'
 import { createClient } from '@/lib/supabase/server'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,8 +12,9 @@ export async function POST(request: NextRequest) {
     }
 
     const { results, week_number, total_weeks } = await request.json()
+    const prelude = await resolveCoachPrelude(supabase)
 
-    const systemPrompt = `Analyse ces résultats d'étude radiologie FMH2 pour la semaine ${week_number} sur ${total_weeks}.
+    const systemPrompt = `${prelude} Analyse ces résultats d'étude pour la semaine ${week_number} sur ${total_weeks}.
 Identifie: chapitres les plus solides, chapitres les plus faibles, patterns d'erreur récurrents, entités encore actives après plusieurs tentatives.
 Sois direct et spécifique.
 Output: markdown structuré avec recommandation de focus pour la semaine prochaine.

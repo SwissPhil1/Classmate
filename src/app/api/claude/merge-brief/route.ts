@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'new_material required' }, { status: 400 })
     }
 
-    const systemPrompt = `Tu intègres de la nouvelle matière dans un brief de radiologie FMH2 existant.
+    const systemPrompt = `Tu intègres de la nouvelle matière dans un brief d'étude existant.
 
 RÈGLE ABSOLUE — PRÉSERVATION :
 - Tu NE DOIS PAS réécrire le brief depuis zéro.

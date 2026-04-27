@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { callClaude } from '@/lib/claude'
 import { createClient } from '@/lib/supabase/server'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 /**
  * Generate Claude pedagogical content for mnemonics whose `content_status` is
@@ -25,7 +26,7 @@ interface MnemonicRow {
   variants: string[]
 }
 
-const SYSTEM_PROMPT = `Tu es radiologue FMH suisse expert et coach pour l'examen oral FMH2. Tu rédiges des mémos courts en français pour des mnémoniques de radiologie validées (extraites de Crack the Core, Core Radiology, Radiology Vibes, ESR EPOS).
+const buildSystemPrompt = (prelude: string) => `${prelude} Tu rédiges des mémos courts en français pour des mnémoniques validées du domaine.
 
 Pour chaque mnémonique, produis un markdown propre avec EXACTEMENT cette structure :
 
@@ -42,10 +43,10 @@ Liste à puces des entités/conditions principales auxquelles cette mnémonique 
 1 phrase : l'erreur typique qu'un junior fait avec cette mnémonique (oubli d'une entité, confusion avec une autre mnémo, sur/sous-utilisation).
 
 CONTRAINTES STRICTES :
-- Tout en français, niveau FMH2 suisse.
+- Tout en français.
 - Markdown brut uniquement, pas de méta-commentaires ni "voici le mémo".
 - 200-400 mots maximum.
-- Si tu ne reconnais pas la mnémonique avec certitude (ambigüité possible avec une variante d'un autre nom), produis quand même un mémo basé sur l'usage le plus probable en radiologie diagnostique. Ne refuse pas.`
+- Si tu ne reconnais pas la mnémonique avec certitude (ambigüité possible avec une variante d'un autre nom), produis quand même un mémo basé sur l'usage le plus probable dans la spécialité. Ne refuse pas.`
 
 function buildUserMessage(m: MnemonicRow): string {
   const aliases = m.variants.filter((v) => v !== m.canonical_name)
@@ -68,6 +69,9 @@ export async function POST(request: NextRequest) {
     const batchSize = Math.max(1, Math.min(20, body.batch_size ?? 10))
     const force = body.force === true
 
+    const prelude = await resolveCoachPrelude(supabase)
+    const systemPrompt = buildSystemPrompt(prelude)
+
     const statusFilter = force ? ['pending', 'generated'] : ['pending']
     const { data: rows, error: fetchErr } = await supabase
       .from('mnemonics')
@@ -86,7 +90,7 @@ export async function POST(request: NextRequest) {
 
     for (const m of rows as MnemonicRow[]) {
       try {
-        const content = await callClaude(SYSTEM_PROMPT, buildUserMessage(m), 1200)
+        const content = await callClaude(systemPrompt, buildUserMessage(m), 1200)
         const trimmed = content.trim()
         if (trimmed.length < 80) {
           errors.push({ canonical_name: m.canonical_name, error: 'Output too short' })

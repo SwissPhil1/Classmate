@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { callClaude } from '@/lib/claude'
 import { createClient } from '@/lib/supabase/server'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 /**
  * Rewrite only the "Mnémonique & DDx structuré" section of a brief based on
@@ -40,10 +41,12 @@ export async function POST(request: NextRequest) {
     }
 
     const currentContent: string = briefRow.content
+    const prelude = await resolveCoachPrelude(supabase)
     const { newContent, rewritten } = await rewriteMnemonicSection(
       currentContent,
       entity as EntityForRewrite,
-      user_feedback.trim()
+      user_feedback.trim(),
+      prelude
     )
 
     if (!rewritten) {
@@ -82,7 +85,8 @@ type EntityForRewrite = {
 async function rewriteMnemonicSection(
   currentContent: string,
   entity: EntityForRewrite,
-  userFeedback: string
+  userFeedback: string,
+  prelude: string
 ): Promise<{ newContent: string; rewritten: boolean }> {
   // Locate a section whose header starts with "## Mnémonique" (or close variants)
   const headerRegex = /^## [Mm]n[ée]moni[qQ]ue[^\n]*/m
@@ -104,7 +108,7 @@ async function rewriteMnemonicSection(
   const topicName = chapterObj?.topic?.name ?? ''
   const chapterName = chapterObj?.name ?? ''
 
-  const systemPrompt = `Tu es un radiologue expert et coach FMH2 suisse. L'utilisateur n'est pas satisfait de la section "Mnémonique & DDx structuré" actuelle pour cette entité et souhaite la réécrire.
+  const systemPrompt = `${prelude} L'utilisateur n'est pas satisfait de la section "Mnémonique & DDx structuré" actuelle pour cette entité et souhaite la réécrire.
 
 Entité: ${entity.name} (type: ${entity.entity_type}, thème: ${topicName}, chapitre: ${chapterName}).
 

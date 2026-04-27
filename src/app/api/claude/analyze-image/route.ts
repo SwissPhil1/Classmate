@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { callClaudeWithVision, parseClaudeJSON } from '@/lib/claude'
 import { createClient } from '@/lib/supabase/server'
 import type { ImageAIBrief } from '@/lib/types'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 export const maxDuration = 30 // seconds — image fetch + Claude vision
 
-const SYSTEM_PROMPT = `Tu es un radiologue FMH expert qui analyse rapidement des images radiologiques pour aider un candidat à l'examen oral suisse.
+const buildSystemPrompt = (prelude: string) => `${prelude} Tu analyses rapidement une image pour aider ton candidat à l'examen oral.
 
 Pour l'image fournie, génère un brief STRUCTURÉ en JSON STRICT avec exactement ces clés:
 {
@@ -26,7 +27,7 @@ Pour l'image fournie, génère un brief STRUCTURÉ en JSON STRICT avec exactemen
 }
 
 RÈGLES STRICTES:
-- Tout en français, niveau FMH2 suisse.
+- Tout en français.
 - top_3_ddx contient EXACTEMENT 3 entrées par ordre de probabilité décroissante.
 - semiologic_findings: tournures télégraphiques d'oral ("masse rénale G hétérogène", "calcifications centrales", "rehaussement périphérique en cocarde"). PAS de phrases complètes.
 - Si l'image est ininterprétable (qualité, mauvaise modalité), renvoie quand même le JSON avec diagnostic_likely="image non interprétable" et explique brièvement dans pitfalls.
@@ -83,9 +84,12 @@ export async function POST(request: NextRequest) {
 
     const userMessage = `Contexte: cette image est attachée à l'entité "${entityName}" (chapitre: ${chapterName}, thème: ${topicName}). Génère le brief JSON pour cette image.`
 
+    const prelude = await resolveCoachPrelude(supabase)
+    const systemPrompt = buildSystemPrompt(prelude)
+
     let response: string
     try {
-      response = await callClaudeWithVision(SYSTEM_PROMPT, userMessage, [signed.signedUrl], 1024)
+      response = await callClaudeWithVision(systemPrompt, userMessage, [signed.signedUrl], 1024)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       await supabase

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { callClaude } from '@/lib/claude'
 import { createClient } from '@/lib/supabase/server'
+import { resolveCoachPrelude } from '@/lib/curriculum-prompts'
 
 interface EntitySummary {
   entity_name: string
@@ -19,6 +20,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const { mode } = body
+    const prelude = await resolveCoachPrelude(supabase)
 
     if (mode === 'history') {
       // ─── History analysis: weak topic identification + key reminders ───
@@ -35,7 +37,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Aucun résultat à analyser' }, { status: 400 })
       }
 
-      const systemPrompt = `Tu es un tuteur expert en radiologie FMH2 suisse. L'étudiant te montre ses résultats d'étude pour identifier ses points faibles et les réviser immédiatement.
+      const systemPrompt = `${prelude} L'étudiant te montre ses résultats d'étude pour identifier ses points faibles et les réviser immédiatement.
 
 TON OBJECTIF : Identifier les sujets les plus faibles et fournir des rappels flash pour activer la rétention MAINTENANT.
 
@@ -115,7 +117,7 @@ ${topicTexts}`
       : session_type === 'weekly_review' ? 'révision hebdomadaire'
       : 'session d\'étude'
 
-    const systemPrompt = `Tu es un tuteur expert en radiologie FMH2 suisse. L'étudiant vient de terminer une ${sessionLabel}.
+    const systemPrompt = `${prelude} L'étudiant vient de terminer une ${sessionLabel}.
 Analyse ses erreurs (réponses partielles et incorrectes) pour identifier:
 
 1. **Patterns d'erreur** : Y a-t-il un thème commun ? (ex: confusion entre deux pathologies, oubli systématique d'un critère, mauvaise approche sémiologique)

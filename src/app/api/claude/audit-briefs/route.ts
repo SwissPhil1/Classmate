@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { callClaude, parseClaudeJSON } from '@/lib/claude'
 import { createClient } from '@/lib/supabase/server'
 import type { BriefAuditItem, BriefAuditReport } from '@/lib/types'
+import { getCurrentUserCurriculum, buildCoachPrelude, DEFAULT_COACH_PRELUDE } from '@/lib/curriculum-prompts'
 
 // Vercel Pro max; audit is batched but can take a few minutes on large libraries.
 export const maxDuration = 300
@@ -52,16 +53,22 @@ export async function POST(request: NextRequest) {
     const chunkSize: number = typeof body?.chunk_size === 'number' ? body.chunk_size : 60
     const reset: boolean = body?.reset === true
 
+    const curriculum = await getCurrentUserCurriculum(supabase)
+    const prelude = curriculum ? buildCoachPrelude(curriculum) : DEFAULT_COACH_PRELUDE
+
+    const chaptersQuery = supabase
+      .from('chapters')
+      .select('id, name, topic:topics(name)')
+      .order('name')
+    if (curriculum) chaptersQuery.eq('curriculum_id', curriculum.id)
+
     const [entitiesRes, chaptersRes] = await Promise.all([
       supabase
         .from('entities')
         .select('id, name, chapter_id, chapter:chapters(name, topic:topics(name)), brief:briefs(content)')
         .eq('user_id', user.id)
         .order('name'),
-      supabase
-        .from('chapters')
-        .select('id, name, topic:topics(name)')
-        .order('name'),
+      chaptersQuery,
     ])
     if (entitiesRes.error) throw entitiesRes.error
     if (chaptersRes.error) throw chaptersRes.error
@@ -110,7 +117,7 @@ export async function POST(request: NextRequest) {
     const newItems: BriefAuditItem[] = []
     for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
       const batch = candidates.slice(i, i + BATCH_SIZE)
-      const rows = await auditBatch(batch, chapterOptions)
+      const rows = await auditBatch(batch, chapterOptions, prelude)
       for (const row of rows) {
         const cand = batch[row.idx]
         if (!cand) continue
@@ -198,7 +205,8 @@ export async function POST(request: NextRequest) {
 
 async function auditBatch(
   candidates: CandidateInput[],
-  chapterOptions: ChapterOption[]
+  chapterOptions: ChapterOption[],
+  prelude: string
 ): Promise<ClaudeAuditRow[]> {
   const list = candidates.map((c) => ({
     idx: c.idx,
@@ -213,7 +221,7 @@ async function auditBatch(
     .map((c) => `- ${c.id} · "${c.name}" (topic: ${c.topic})`)
     .join('\n')
 
-  const systemPrompt = `Tu es un radiologue expert et coach FMH2 suisse. Tu vas auditer une liste de briefs d'étude radiologique. Pour CHAQUE entité, évalue si le brief est complet et bien structuré pour préparer l'examen FMH2, ET si l'entité est bien classée dans le bon chapitre.
+  const systemPrompt = `${prelude} Tu vas auditer une liste de briefs d'étude. Pour CHAQUE entité, évalue si le brief est complet et bien structuré pour préparer l'examen, ET si l'entité est bien classée dans le bon chapitre.
 
 Critères d'audit — flag un manque (status: "needs_fix") si UN de ces points est vrai :
 - **DDx incomplet** : une cause fréquente et cliniquement importante manque dans la liste (exemple : brief sur le nerf optique sans mentionner la SEP / névrite démyélinisante ; brief sur masses médiastinales antérieures sans thymome).
