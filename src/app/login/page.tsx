@@ -61,7 +61,7 @@ function LoginForm() {
       <div className="text-center space-y-2">
         <h1 className="text-3xl font-bold text-foreground">RadLoop</h1>
         <p className="text-muted-foreground text-sm">
-          Système de révision active — FMH2 Radiologie
+          Système de révision active
         </p>
       </div>
 

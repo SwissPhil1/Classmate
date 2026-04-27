@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { useSettings } from "@/hooks/use-settings";
+import { useCurriculum } from "@/hooks/use-curriculum";
 import { useTheme } from "@/components/providers/theme-provider";
 import { daysUntil, weekNumber } from "@/lib/spaced-repetition";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const { user, loading: userLoading } = useUser();
   const { settings, updateSettings } = useSettings();
+  const { curriculum } = useCurriculum();
   const { theme, setTheme } = useTheme();
   const supabase = createClient();
   const [exporting, setExporting] = useState(false);
@@ -198,19 +200,19 @@ export default function SettingsPage() {
         {/* Exam Info */}
         <div className="bg-card border border-border rounded-xl p-5 space-y-3">
           <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-            Examen FMH2
+            {curriculum ? `Examen ${curriculum.display_name}` : "Examen"}
           </h2>
           <div className="space-y-2">
             <div className="flex justify-between">
               <span className="text-sm text-foreground">Écrit</span>
               <span className="text-sm text-muted-foreground">
-                26.08.2026 (J-{writtenDays})
+                {settings ? formatExamDate(settings.exam_date_written) : "—"} (J-{writtenDays})
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-sm text-foreground">Oral</span>
               <span className="text-sm text-muted-foreground">
-                27-28.08.2026 (J-{oralDays})
+                {settings ? formatExamDateRange(settings.exam_date_oral_start, settings.exam_date_oral_end) : "—"} (J-{oralDays})
               </span>
             </div>
             <div className="flex justify-between">
@@ -344,6 +346,18 @@ export default function SettingsPage() {
       </main>
     </div>
   );
+}
+
+function formatExamDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+
+function formatExamDateRange(startIso: string, endIso: string): string {
+  const [, sm, sd] = startIso.split("-");
+  const [ey, em, ed] = endIso.split("-");
+  if (sm === em) return `${sd}-${ed}.${em}.${ey}`;
+  return `${sd}.${sm}.${ey} – ${ed}.${em}.${ey}`;
 }
 
 function downloadCSV(csv: string, filename: string) {

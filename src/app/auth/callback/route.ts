@@ -44,7 +44,8 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(authError.message)}`)
   }
 
-  // Initialize user settings if first login
+  // First login: send the user through curriculum onboarding before the
+  // dashboard. Existing users already have user_settings → straight to next.
   try {
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
@@ -55,13 +56,7 @@ export async function GET(request: Request) {
         .single()
 
       if (!settings) {
-        await supabase.from('user_settings').insert({
-          user_id: user.id,
-          exam_date_written: '2026-08-26',
-          exam_date_oral_start: '2026-08-27',
-          exam_date_oral_end: '2026-08-28',
-          week_start_date: new Date().toISOString().split('T')[0],
-        })
+        return NextResponse.redirect(`${origin}/onboarding/curriculum`)
       }
     }
   } catch (err) {
