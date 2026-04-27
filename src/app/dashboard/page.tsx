@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
 import { useSettings } from "@/hooks/use-settings";
+import { useCurriculum } from "@/hooks/use-curriculum";
 import {
   getDueCount,
   getPretestCount,
@@ -33,6 +34,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const { user, loading: userLoading } = useUser();
   const { settings } = useSettings();
+  const { curriculum } = useCurriculum();
   const supabase = createClient();
 
   const [dueCount, setDueCount] = useState(0);
@@ -52,7 +54,7 @@ export default function DashboardPage() {
   }, [userLoading, user, router]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !curriculum) return;
 
     async function loadDashboard() {
       try {
@@ -75,7 +77,7 @@ export default function DashboardPage() {
           getDueCount(supabase, user!.id),
           getPretestCount(supabase, user!.id),
           getWeakCount(supabase, user!.id),
-          getTopicHealthGrid(supabase, user!.id),
+          getTopicHealthGrid(supabase, user!.id, curriculum!.id),
           getSessionState(supabase, user!.id),
           getVitalDueToday(supabase, user!.id).catch((err) => {
             // Gracefully handle pre-migration state (priority column missing)
@@ -99,7 +101,7 @@ export default function DashboardPage() {
     }
 
     loadDashboard();
-  }, [user]);
+  }, [user, curriculum]);
 
   const handleStartSession = (sessionType: SessionType, topicId?: string) => {
     const params = new URLSearchParams({ type: sessionType });

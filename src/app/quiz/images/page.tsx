@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft, Sparkles, Zap, Play } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
+import { useCurriculum } from "@/hooks/use-curriculum";
 import { getTopics, getChapters } from "@/lib/supabase/queries";
 import { BulkAnalyzeImagesButton } from "@/components/quiz/bulk-analyze-images-button";
 import type { Topic, Chapter, ImageModality } from "@/lib/types";
@@ -29,6 +30,7 @@ export default function QuizImagesConfigPage() {
   const router = useRouter();
   const supabase = createClient();
   const { user, loading: userLoading } = useUser();
+  const { curriculum } = useCurriculum();
 
   const [topics, setTopics] = useState<Topic[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
@@ -44,18 +46,19 @@ export default function QuizImagesConfigPage() {
   }, [userLoading, user, router]);
 
   useEffect(() => {
-    void getTopics(supabase).then(setTopics);
-  }, [supabase]);
+    if (!curriculum) return;
+    void getTopics(supabase, curriculum.id).then(setTopics);
+  }, [supabase, curriculum]);
 
   useEffect(() => {
-    if (!topicId) {
+    if (!topicId || !curriculum) {
       setChapters([]);
       setChapterId("");
       return;
     }
-    void getChapters(supabase, topicId).then(setChapters);
+    void getChapters(supabase, curriculum.id, topicId).then(setChapters);
     setChapterId("");
-  }, [supabase, topicId]);
+  }, [supabase, topicId, curriculum]);
 
   const launch = () => {
     const params = new URLSearchParams();

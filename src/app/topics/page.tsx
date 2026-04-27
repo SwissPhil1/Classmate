@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
+import { useCurriculum } from "@/hooks/use-curriculum";
 import { getTopicHealthGrid, createTopic } from "@/lib/supabase/queries";
 import type { TopicHealth } from "@/lib/types";
 import { ArrowLeft, Plus, Check, X } from "lucide-react";
@@ -20,6 +21,7 @@ const HEALTH_COLORS = {
 export default function TopicsPage() {
   const router = useRouter();
   const { user, loading: userLoading } = useUser();
+  const { curriculum } = useCurriculum();
   const supabase = createClient();
   const [topics, setTopics] = useState<TopicHealth[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,16 +33,16 @@ export default function TopicsPage() {
   }, [userLoading, user, router]);
 
   useEffect(() => {
-    if (!user) return;
-    getTopicHealthGrid(supabase, user.id)
+    if (!user || !curriculum) return;
+    getTopicHealthGrid(supabase, user.id, curriculum.id)
       .then(setTopics)
       .finally(() => setLoading(false));
-  }, [user]);
+  }, [user, curriculum]);
 
   const handleCreateTopic = async () => {
-    if (!newTopicName.trim() || !user) return;
+    if (!newTopicName.trim() || !user || !curriculum) return;
     try {
-      const { topic } = await createTopic(supabase, newTopicName.trim());
+      const { topic } = await createTopic(supabase, curriculum.id, newTopicName.trim());
       toast.success(`Thème "${topic.name}" créé`);
       setCreating(false);
       setNewTopicName("");

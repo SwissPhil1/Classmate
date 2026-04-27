@@ -41,14 +41,28 @@ export type Priority = 'normal' | 'vital'
 export type PrioritySource = 'auto' | 'manual'
 
 // ─── Database Models ─────────────────────────────────────
+export interface Curriculum {
+  id: string
+  display_name: string
+  expert_role: string
+  exam_name: string
+  student_level: string
+  exam_date_written: string | null
+  exam_date_oral_start: string | null
+  exam_date_oral_end: string | null
+  created_at: string
+}
+
 export interface Topic {
   id: string
+  curriculum_id: string
   name: string
   exam_component: ExamComponent
 }
 
 export interface Chapter {
   id: string
+  curriculum_id: string
   topic_id: string
   name: string
   topic?: Topic
@@ -261,6 +275,7 @@ export interface BriefAuditReport {
 
 export interface UserSettings {
   user_id: string
+  curriculum_id: string
   exam_date_written: string
   exam_date_oral_start: string
   exam_date_oral_end: string
@@ -319,6 +334,7 @@ export type MnemonicContentStatus = 'pending' | 'generated' | 'reviewed'
 
 export interface Mnemonic {
   id: string
+  curriculum_id: string
   canonical_name: string
   theme: string
   variants: string[]

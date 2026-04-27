@@ -3,21 +3,57 @@ import type {
   Entity, EntityImage, Topic, Chapter, Source, Brief, Session, SessionState,
   TestResultRecord, UserSettings, QueueItem, EntityType, SessionType, ExamComponent,
   TopicHealth, HealthStatus, EntityEvent, EntityEventKind, ImageReviewState,
+  Curriculum,
 } from '@/lib/types'
 import { chapterHealth } from '@/lib/spaced-repetition'
 
+// ─── Curricula ───────────────────────────────────────────
+export async function getCurricula(supabase: SupabaseClient): Promise<Curriculum[]> {
+  const { data, error } = await supabase
+    .from('curricula')
+    .select('*')
+    .order('display_name')
+  if (error) throw error
+  return data as Curriculum[]
+}
+
+export async function getCurriculum(
+  supabase: SupabaseClient,
+  curriculumId: string
+): Promise<Curriculum | null> {
+  const { data, error } = await supabase
+    .from('curricula')
+    .select('*')
+    .eq('id', curriculumId)
+    .single()
+  if (error && error.code !== 'PGRST116') throw error
+  return data as Curriculum | null
+}
+
 // ─── Topics & Chapters ───────────────────────────────────
-export async function getTopics(supabase: SupabaseClient): Promise<Topic[]> {
+export async function getTopics(
+  supabase: SupabaseClient,
+  curriculumId: string
+): Promise<Topic[]> {
   const { data, error } = await supabase
     .from('topics')
     .select('*')
+    .eq('curriculum_id', curriculumId)
     .order('name')
   if (error) throw error
   return data
 }
 
-export async function getChapters(supabase: SupabaseClient, topicId?: string): Promise<Chapter[]> {
-  let query = supabase.from('chapters').select('*').order('name')
+export async function getChapters(
+  supabase: SupabaseClient,
+  curriculumId: string,
+  topicId?: string
+): Promise<Chapter[]> {
+  let query = supabase
+    .from('chapters')
+    .select('*')
+    .eq('curriculum_id', curriculumId)
+    .order('name')
   if (topicId) query = query.eq('topic_id', topicId)
   const { data, error } = await query
   if (error) throw error
@@ -36,19 +72,20 @@ export async function getTopicWithChapters(supabase: SupabaseClient, topicId: st
 
 export async function createTopic(
   supabase: SupabaseClient,
+  curriculumId: string,
   name: string,
   examComponent: ExamComponent = 'both'
 ): Promise<{ topic: Topic; chapter: Chapter }> {
   const { data: topic, error: topicErr } = await supabase
     .from('topics')
-    .insert({ name, exam_component: examComponent })
+    .insert({ curriculum_id: curriculumId, name, exam_component: examComponent })
     .select()
     .single()
   if (topicErr) throw topicErr
 
   const { data: chapter, error: chapterErr } = await supabase
     .from('chapters')
-    .insert({ topic_id: topic.id, name })
+    .insert({ curriculum_id: curriculumId, topic_id: topic.id, name })
     .select()
     .single()
   if (chapterErr) throw chapterErr
@@ -363,11 +400,16 @@ export async function getPretestCount(supabase: SupabaseClient, userId: string):
 
 export async function getTopicHealthGrid(
   supabase: SupabaseClient,
-  userId: string
+  userId: string,
+  curriculumId: string
 ): Promise<TopicHealth[]> {
   const [topics, chapters, entities] = await Promise.all([
-    getTopics(supabase),
-    supabase.from('chapters').select('*').order('name'),
+    getTopics(supabase, curriculumId),
+    supabase
+      .from('chapters')
+      .select('*')
+      .eq('curriculum_id', curriculumId)
+      .order('name'),
     supabase.from('entities').select('id, chapter_id, status').eq('user_id', userId),
   ])
 

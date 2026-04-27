@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
+import { useCurriculum } from "@/hooks/use-curriculum";
 import {
   getTopics,
   getChapters,
@@ -37,6 +38,7 @@ const ENTITY_TYPE_OPTIONS: { value: EntityType; label: string }[] = [
 
 export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
   const { user } = useUser();
+  const { curriculum } = useCurriculum();
   const router = useRouter();
   const supabase = createClient();
 
@@ -63,10 +65,10 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
   const [newTopicName, setNewTopicName] = useState("");
 
   useEffect(() => {
-    if (!open || !user) return;
+    if (!open || !user || !curriculum) return;
     const load = async () => {
       const [t, s, ents] = await Promise.all([
-        getTopics(supabase),
+        getTopics(supabase, curriculum.id),
         getSources(supabase),
         getEntities(supabase, user.id),
       ]);
@@ -80,15 +82,15 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
       setParentEntities(potentialParents);
     };
     load();
-  }, [open, user]);
+  }, [open, user, curriculum]);
 
   useEffect(() => {
-    if (!topicId) return;
-    getChapters(supabase, topicId).then((c) => {
+    if (!topicId || !curriculum) return;
+    getChapters(supabase, curriculum.id, topicId).then((c) => {
       setChapters(c);
       if (c.length > 0) setChapterId(c[0].id);
     });
-  }, [topicId]);
+  }, [topicId, curriculum]);
 
   const handleSourceChange = (val: string) => {
     if (val === "__custom__") {
@@ -351,9 +353,9 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
                     value={newTopicName}
                     onChange={(e) => setNewTopicName(e.target.value)}
                     onKeyDown={async (e) => {
-                      if (e.key === "Enter" && newTopicName.trim()) {
+                      if (e.key === "Enter" && newTopicName.trim() && curriculum) {
                         try {
-                          const { topic, chapter } = await createTopic(supabase, newTopicName.trim());
+                          const { topic, chapter } = await createTopic(supabase, curriculum.id, newTopicName.trim());
                           setTopics((prev) => [...prev, topic].sort((a, b) => a.name.localeCompare(b.name)));
                           setTopicId(topic.id);
                           setChapters([chapter]);

@@ -19,8 +19,11 @@ export async function POST() {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
     }
 
+    // The whitelist is currently radiology-only. When a curriculum-specific
+    // whitelist appears later, branch on `user_settings.curriculum_id` here.
     const rows = CANONICAL_MNEMONIC_ENTRIES.map((e) => ({
       canonical_name: e.canonical,
+      curriculum_id: 'radiology-fmh2-ch',
       theme: e.theme,
       variants: e.variants,
     }))
