@@ -87,6 +87,9 @@ export interface Entity {
   priority_source: PrioritySource | null
   has_mnemonic: boolean
   mnemonic_name: string | null
+  /** Aunt Minnie flag — entity is drilled image-first via the dedicated
+   *  on-demand flashcard, regardless of SRS due date. */
+  is_aunt_minnie: boolean
   image_url: string | null
   notes: string | null
   reference_text: string | null

@@ -507,6 +507,61 @@ export async function setEntityPriority(
   if (error) throw error
 }
 
+/**
+ * Aunt Minnie entities — image-first flashcard pool. Always returned in random
+ * order so the user can't anticipate via list position. Brief is joined for the
+ * reveal (key points / mnemonic name if any).
+ */
+export async function getAuntMinnieEntities(
+  supabase: SupabaseClient,
+  userId: string,
+  limit: number = 50
+): Promise<Entity[]> {
+  const { data, error } = await supabase
+    .from('entities')
+    .select('*, chapter:chapters(*, topic:topics(*)), brief:briefs(content), images:entity_images(*)')
+    .eq('user_id', userId)
+    .eq('is_aunt_minnie', true)
+    .in('status', ['active', 'new', 'solid'])
+    .limit(limit)
+  if (error) throw error
+  return (data ?? []) as Entity[]
+}
+
+export async function countAuntMinnieEntities(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<number> {
+  const { count, error } = await supabase
+    .from('entities')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('is_aunt_minnie', true)
+    .in('status', ['active', 'new', 'solid'])
+  if (error) throw error
+  return count ?? 0
+}
+
+/** Toggle the Aunt Minnie flag. When turning ON, also bumps priority to vital
+ *  (auto) so the entity gets compressed intervals in the standard SRS queue.
+ *  Turning OFF leaves priority alone — the user might have set it manually. */
+export async function setEntityAuntMinnie(
+  supabase: SupabaseClient,
+  entityId: string,
+  value: boolean
+): Promise<void> {
+  const updates: Record<string, unknown> = { is_aunt_minnie: value }
+  if (value) {
+    updates.priority = 'vital'
+    updates.priority_source = 'auto'
+  }
+  const { error } = await supabase
+    .from('entities')
+    .update(updates)
+    .eq('id', entityId)
+  if (error) throw error
+}
+
 // ─── Weak Items Count ───────────────────────────────────
 export async function getWeakCount(supabase: SupabaseClient, userId: string): Promise<number> {
   const { count, error } = await supabase
