@@ -24,6 +24,13 @@ const PRIORITY_MULTIPLIER: Record<Priority, number> = {
 /** Vital items never archive — cap their fourth-correct interval instead */
 const VITAL_MAX_INTERVAL_DAYS = 30
 
+/** Sprint phase floor — wrong/short intervals cap here so nothing is left behind. */
+const SPRINT_INTERVAL_CAP_DAYS = 2
+
+/** Surge resurrection: archived items return spread randomly across this many days
+ *  (or `daysUntilExam - 7`, whichever is smaller) so the user doesn't get a flood. */
+const SURGE_SPREAD_MAX_DAYS = 21
+
 interface SpacedRepetitionUpdate {
   correct_streak: number
   next_test_date: string | null
@@ -33,12 +40,49 @@ interface SpacedRepetitionUpdate {
   cycle_count: number
 }
 
-/** Check if entity needs mastery decay (inactivity > 30 days demotes solid → active) */
+/** Phase of the study cycle relative to the target exam date.
+ *  - build  (>30j or no date)  → standard SM-2, archive normally
+ *  - surge  (8-30j)            → cap intervals, resurrect archived items, no decay
+ *  - sprint (≤7j)              → very tight cap, never archive
+ */
+export type ExamPhase = 'build' | 'surge' | 'sprint'
+
+export function examPhase(daysUntilExam: number | null): ExamPhase {
+  if (daysUntilExam == null || daysUntilExam > 30) return 'build'
+  if (daysUntilExam > 7) return 'surge'
+  return 'sprint'
+}
+
+/** Maximum days an interval can extend during the given phase.
+ *  null means "no exam-aware cap" (build phase or no exam date set). */
+function examPhaseCap(daysUntilExam: number | null): number | null {
+  const phase = examPhase(daysUntilExam)
+  if (phase === 'build') return null
+  if (phase === 'sprint') return SPRINT_INTERVAL_CAP_DAYS
+  // surge: roughly a third of the remaining window, but at least 2 days
+  return Math.max(2, Math.floor((daysUntilExam ?? 0) / 3))
+}
+
+function applyCap(days: number, cap: number | null): number {
+  if (cap == null) return days
+  return Math.max(1, Math.min(days, cap))
+}
+
+/** Check if entity needs mastery decay (inactivity > 30 days demotes solid → active).
+ *  Skipped during surge/sprint phases — exam-phase logic handles freshness instead. */
 export function checkMasteryDecay(
-  entity: Pick<Entity, 'status' | 'last_tested' | 'correct_streak' | 'cycle_count'>
+  entity: Pick<Entity, 'status' | 'last_tested' | 'correct_streak' | 'cycle_count'>,
+  examDate?: string | null,
 ): { needsDecay: boolean; updates?: Partial<Pick<Entity, 'status' | 'correct_streak' | 'next_test_date' | 'cycle_count'>> } {
   if (entity.status !== 'solid' && entity.status !== 'archived') return { needsDecay: false }
   if (!entity.last_tested) return { needsDecay: false }
+
+  // During surge/sprint the resurrection logic owns archived → active transitions.
+  // Decaying on top of that double-fires updates and skews intervals.
+  if (examDate) {
+    const phase = examPhase(daysUntil(examDate))
+    if (phase !== 'build') return { needsDecay: false }
+  }
 
   const daysSinceTest = daysBetween(entity.last_tested.split('T')[0], new Date().toISOString().split('T')[0])
 
@@ -61,15 +105,49 @@ export function checkMasteryDecay(
   return { needsDecay: false }
 }
 
+/** During surge phase, archived items rejoin the active pool with a staggered
+ *  next_test_date so the user revisits everything at least once before sprint. */
+export function checkExamSurge(
+  entity: Pick<Entity, 'status' | 'correct_streak'>,
+  examDate: string | null | undefined,
+): { needsSurge: boolean; updates?: Partial<Pick<Entity, 'status' | 'correct_streak' | 'next_test_date'>> } {
+  if (!examDate) return { needsSurge: false }
+  if (entity.status !== 'archived') return { needsSurge: false }
+  const days = daysUntil(examDate)
+  if (days < 1) return { needsSurge: false }
+  const phase = examPhase(days)
+  if (phase === 'build') return { needsSurge: false }
+
+  // Spread evenly across [0, min(days - 7, SURGE_SPREAD_MAX_DAYS)] so the
+  // resurrected pool doesn't all land on day one.
+  const spreadMax = Math.max(0, Math.min(days - 7, SURGE_SPREAD_MAX_DAYS))
+  const offset = Math.floor(Math.random() * (spreadMax + 1))
+  const today = new Date().toISOString().split('T')[0]
+  return {
+    needsSurge: true,
+    updates: {
+      status: 'active',
+      // Drop streak from 4 → 2 so calculateNextReview's next correct response
+      // promotes back to 'solid' rather than instantly re-archiving.
+      correct_streak: 2,
+      next_test_date: addDays(today, offset),
+    },
+  }
+}
+
 export function calculateNextReview(
   entity: Pick<Entity, 'correct_streak' | 'difficulty_level' | 'status' | 'cycle_count' | 'last_tested'> & { priority?: Priority },
-  result: TestResult
+  result: TestResult,
+  examDate?: string | null,
 ): SpacedRepetitionUpdate {
   const now = new Date()
   const today = now.toISOString().split('T')[0]
   let { correct_streak, difficulty_level, cycle_count } = entity
   const priority: Priority = entity.priority ?? 'normal'
   const priorityMult = PRIORITY_MULTIPLIER[priority]
+  const daysToExam = examDate ? daysUntil(examDate) : null
+  const phase = examPhase(daysToExam)
+  const cap = examPhaseCap(daysToExam)
 
   // If long gap since last test (>30 days), reset cycle for gentler re-entry
   if (entity.last_tested) {
@@ -86,6 +164,19 @@ export function calculateNextReview(
     correct_streak += 1
 
     if (correct_streak >= 4) {
+      // In surge/sprint nothing archives — keep everything in rotation up to the exam.
+      if (phase !== 'build') {
+        const days = applyCap(VITAL_MAX_INTERVAL_DAYS, cap)
+        return {
+          correct_streak: 4,
+          next_test_date: addDays(today, days),
+          status: 'solid',
+          difficulty_level,
+          last_tested: now.toISOString(),
+          cycle_count,
+        }
+      }
+
       // Vital items never fully archive — cap interval and keep them active-ish
       if (priority === 'vital') {
         const nextDate = addDays(today, Math.max(1, Math.round(VITAL_MAX_INTERVAL_DAYS * priorityMult)))
@@ -110,7 +201,7 @@ export function calculateNextReview(
 
     const baseDays = STREAK_INTERVALS[correct_streak - 1] ?? 16
     const diffMult = DIFFICULTY_MULTIPLIER[difficulty_level] ?? 1
-    const daysToAdd = Math.max(1, Math.round(baseDays * diffMult * priorityMult))
+    const daysToAdd = applyCap(Math.max(1, Math.round(baseDays * diffMult * priorityMult)), cap)
     const nextDate = addDays(today, daysToAdd)
 
     return {
@@ -127,7 +218,7 @@ export function calculateNextReview(
     // Streak unchanged, +2 days (difficulty-adjusted)
     const baseDays = 2
     const diffMult = DIFFICULTY_MULTIPLIER[difficulty_level] ?? 1
-    const daysToAdd = Math.max(1, Math.round(baseDays * diffMult * priorityMult))
+    const daysToAdd = applyCap(Math.max(1, Math.round(baseDays * diffMult * priorityMult)), cap)
     const nextDate = addDays(today, daysToAdd)
     return {
       correct_streak,

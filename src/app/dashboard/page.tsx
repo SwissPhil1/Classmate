@@ -15,7 +15,7 @@ import {
   getVitalDueToday,
   updateEntity,
 } from "@/lib/supabase/queries";
-import { daysUntil, weekNumber, checkMasteryDecay } from "@/lib/spaced-repetition";
+import { daysUntil, weekNumber, checkMasteryDecay, checkExamSurge } from "@/lib/spaced-repetition";
 import type { TopicHealth, SessionType, Entity } from "@/lib/types";
 import { ExamCountdown } from "@/components/dashboard/exam-countdown";
 import { TodayQueue } from "@/components/dashboard/today-queue";
@@ -24,9 +24,10 @@ import { MnemonicDrillCard } from "@/components/dashboard/mnemonic-drill-card";
 import { TopicHealthGrid } from "@/components/dashboard/topic-health-grid";
 import { QuickAddButton } from "@/components/dashboard/quick-add-button";
 import { QuickAddSheet } from "@/components/dashboard/quick-add-sheet";
+import { RapidFireSheet } from "@/components/dashboard/rapid-fire-sheet";
 import { ResumeSessionModal } from "@/components/dashboard/resume-session-modal";
 import { InterleavingNudge } from "@/components/dashboard/interleaving-nudge";
-import { Settings, BookOpen, Clock, BarChart3, Images } from "lucide-react";
+import { Settings, BookOpen, Clock, BarChart3, Images, Zap } from "lucide-react";
 import Link from "next/link";
 
 export default function DashboardPage() {
@@ -41,6 +42,7 @@ export default function DashboardPage() {
   const [topicHealth, setTopicHealth] = useState<TopicHealth[]>([]);
   const [vitalDue, setVitalDue] = useState<Entity[]>([]);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [rapidFireOpen, setRapidFireOpen] = useState(false);
   const [resumeSession, setResumeSession] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -56,17 +58,35 @@ export default function DashboardPage() {
 
     async function loadDashboard() {
       try {
-        // Check mastery decay for stale entities
+        const examDate = settings?.exam_date_written;
+
+        // Check mastery decay for stale entities (build phase only — surge/sprint
+        // owns archived → active transitions via checkExamSurge below).
         const allEntities = await getEntities(supabase, user!.id);
         const decayUpdates = allEntities
           .filter(e => e.status === 'solid' || e.status === 'archived')
-          .map(e => ({ entity: e, decay: checkMasteryDecay(e) }))
+          .map(e => ({ entity: e, decay: checkMasteryDecay(e, examDate) }))
           .filter(({ decay }) => decay.needsDecay);
 
         if (decayUpdates.length > 0) {
           await Promise.all(
             decayUpdates.map(({ entity: e, decay }) =>
               updateEntity(supabase, e.id, decay.updates as Partial<Entity>)
+            )
+          );
+        }
+
+        // Surge resurrection: in the 8-30 day window, archived entities rejoin
+        // the active pool with a staggered next_test_date.
+        const surgeUpdates = allEntities
+          .filter(e => e.status === 'archived')
+          .map(e => ({ entity: e, surge: checkExamSurge(e, examDate) }))
+          .filter(({ surge }) => surge.needsSurge);
+
+        if (surgeUpdates.length > 0) {
+          await Promise.all(
+            surgeUpdates.map(({ entity: e, surge }) =>
+              updateEntity(supabase, e.id, surge.updates as Partial<Entity>)
             )
           );
         }
@@ -99,7 +119,9 @@ export default function DashboardPage() {
     }
 
     loadDashboard();
-  }, [user]);
+    // Re-run when the exam date becomes known so surge resurrection can fire on
+    // the first dashboard load that has settings.
+  }, [user, settings?.exam_date_written]);
 
   const handleStartSession = (sessionType: SessionType, topicId?: string) => {
     const params = new URLSearchParams({ type: sessionType });
@@ -189,6 +211,22 @@ export default function DashboardPage() {
           week={week}
         />
 
+        {/* Rapid Fire entry — pick a theme, drill N questions, ignore SRS dates */}
+        <button
+          onClick={() => setRapidFireOpen(true)}
+          className="w-full bg-card border border-border rounded-xl p-4 flex items-center gap-3 hover:border-teal/50 transition-colors text-left"
+        >
+          <div className="w-10 h-10 rounded-lg bg-teal/10 flex items-center justify-center flex-shrink-0">
+            <Zap className="w-5 h-5 text-teal" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-foreground">Rapid Fire</div>
+            <div className="text-xs text-muted-foreground">
+              Drill rapide sur un thème, indépendamment des dates de révision
+            </div>
+          </div>
+        </button>
+
         {/* Daily drill — vital/mnemonic items with compressed intervals */}
         {vitalDue.length > 0 && (
           <DailyDrill
@@ -238,6 +276,12 @@ export default function DashboardPage() {
             getPretestCount(supabase, user.id).then(setPretestCount);
           }
         }}
+      />
+
+      {/* Rapid Fire Sheet */}
+      <RapidFireSheet
+        open={rapidFireOpen}
+        onClose={() => setRapidFireOpen(false)}
       />
 
       {/* Resume Session Modal */}

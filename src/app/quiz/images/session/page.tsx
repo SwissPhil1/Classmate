@@ -7,6 +7,7 @@ import { ArrowLeft, Sparkles, Eye, X, Check, AlertCircle, RefreshCw, Zap } from 
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/hooks/use-user";
+import { useSettings } from "@/hooks/use-settings";
 import { getImagesForQuiz, upsertImageReviewState, type ImageQuizItem } from "@/lib/supabase/queries";
 import { getImageUrl } from "@/lib/supabase/storage";
 import { calculateNextReview } from "@/lib/spaced-repetition";
@@ -30,6 +31,7 @@ function QuizSessionInner() {
   const params = useSearchParams();
   const supabase = createClient();
   const { user, loading: userLoading } = useUser();
+  const { settings } = useSettings();
 
   const topicId = params.get("topic") || null;
   const chapterId = params.get("chapter") || null;
@@ -107,7 +109,8 @@ function QuizSessionInner() {
         cycle_count: state?.cycle_count ?? 0,
         last_tested: state?.last_reviewed ?? null,
       },
-      result
+      result,
+      settings?.exam_date_written
     );
 
     try {
