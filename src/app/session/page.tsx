@@ -98,6 +98,10 @@ function SessionContent() {
           // No existing state — create new session
           const initSessionType = (searchParams.get("type") || "short") as SessionType;
           const topicFilter = searchParams.get("topic") || undefined;
+          const countParam = searchParams.get("count");
+          const count = countParam ? parseInt(countParam, 10) : undefined;
+          // mode=all → rapid-fire: include entities not currently due
+          const includeNonDue = searchParams.get("mode") === "all";
           setSessionType(initSessionType);
 
           const session = await createSession(supabase, {
@@ -111,7 +115,8 @@ function SessionContent() {
             user!.id,
             initSessionType,
             topicFilter,
-            settings?.interleaving_enabled ?? false
+            settings?.interleaving_enabled ?? false,
+            { count, includeNonDue }
           );
 
           setSessionId(session.id);
@@ -400,8 +405,10 @@ function SessionContent() {
             status: currentEntity.status,
             cycle_count: currentEntity.cycle_count,
             last_tested: currentEntity.last_tested,
+            priority: currentEntity.priority,
           },
-          result
+          result,
+          settings?.exam_date_written
         );
 
         const entityUpdate: Record<string, unknown> = { ...update };

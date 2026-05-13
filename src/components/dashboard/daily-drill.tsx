@@ -21,6 +21,7 @@ import type { Entity } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { createTestResult, updateEntity, setEntityPriority } from "@/lib/supabase/queries";
 import { calculateNextReview } from "@/lib/spaced-repetition";
+import { useSettings } from "@/hooks/use-settings";
 import { extractDrillReveal, extractRawMnemonicBody, type DrillReveal } from "@/lib/brief-parsing";
 
 interface DailyDrillProps {
@@ -40,6 +41,7 @@ interface SessionResults {
  */
 export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
   const supabase = createClient();
+  const { settings } = useSettings();
   const mnemonicItemCount = useMemo(() => items.filter((e) => e.has_mnemonic).length, [items]);
   // Default to mnemonics-only when any mnemonic is due — the drill is most
   // valuable as rapid-fire mnemonic recall. Can't-miss diagnostics still get
@@ -103,7 +105,8 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
               last_tested: current.last_tested,
               priority: current.priority,
             },
-            result
+            result,
+            settings?.exam_date_written
           );
           await Promise.all([
             createTestResult(supabase, {
@@ -141,7 +144,7 @@ export function DailyDrill({ items, onCompleted }: DailyDrillProps) {
         setProcessing(false);
       }
     },
-    [current, supabase, advance, isRetry]
+    [current, supabase, advance, isRetry, settings?.exam_date_written]
   );
 
   const removeFromDrill = useCallback(async () => {

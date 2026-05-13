@@ -507,6 +507,61 @@ export async function setEntityPriority(
   if (error) throw error
 }
 
+/**
+ * Aunt Minnie entities — image-first flashcard pool. Always returned in random
+ * order so the user can't anticipate via list position. Brief is joined for the
+ * reveal (key points / mnemonic name if any).
+ */
+export async function getAuntMinnieEntities(
+  supabase: SupabaseClient,
+  userId: string,
+  limit: number = 50
+): Promise<Entity[]> {
+  const { data, error } = await supabase
+    .from('entities')
+    .select('*, chapter:chapters(*, topic:topics(*)), brief:briefs(content), images:entity_images(*)')
+    .eq('user_id', userId)
+    .eq('is_aunt_minnie', true)
+    .in('status', ['active', 'new', 'solid'])
+    .limit(limit)
+  if (error) throw error
+  return (data ?? []) as Entity[]
+}
+
+export async function countAuntMinnieEntities(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<number> {
+  const { count, error } = await supabase
+    .from('entities')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('is_aunt_minnie', true)
+    .in('status', ['active', 'new', 'solid'])
+  if (error) throw error
+  return count ?? 0
+}
+
+/** Toggle the Aunt Minnie flag. When turning ON, also bumps priority to vital
+ *  (auto) so the entity gets compressed intervals in the standard SRS queue.
+ *  Turning OFF leaves priority alone — the user might have set it manually. */
+export async function setEntityAuntMinnie(
+  supabase: SupabaseClient,
+  entityId: string,
+  value: boolean
+): Promise<void> {
+  const updates: Record<string, unknown> = { is_aunt_minnie: value }
+  if (value) {
+    updates.priority = 'vital'
+    updates.priority_source = 'auto'
+  }
+  const { error } = await supabase
+    .from('entities')
+    .update(updates)
+    .eq('id', entityId)
+  if (error) throw error
+}
+
 // ─── Weak Items Count ───────────────────────────────────
 export async function getWeakCount(supabase: SupabaseClient, userId: string): Promise<number> {
   const { count, error } = await supabase
@@ -527,7 +582,8 @@ export async function assembleQueue(
   userId: string,
   sessionType: SessionType,
   topicFilter?: string,
-  interleavingEnabled: boolean = false
+  interleavingEnabled: boolean = false,
+  options: { count?: number; includeNonDue?: boolean } = {},
 ): Promise<QueueItem[]> {
   const today = new Date().toISOString().split('T')[0]
   const queue: QueueItem[] = []
@@ -572,6 +628,10 @@ export async function assembleQueue(
   if (sessionType === 'weak_items') {
     // Weak items: struggling entities regardless of next_test_date
     entityQuery = entityQuery.lte('correct_streak', 1).eq('pre_test_done', true)
+  } else if (options.includeNonDue) {
+    // Rapid-fire: drill all active/new entities in scope, ignoring SRS due date.
+    // Existing pre_test_done filter is preserved (no point asking pretest items).
+    entityQuery = entityQuery.eq('pre_test_done', true)
   } else {
     entityQuery = entityQuery.not('next_test_date', 'is', null).lte('next_test_date', today)
   }
@@ -587,11 +647,15 @@ export async function assembleQueue(
     }
   }
 
-  const { data: dueEntities, error: dueErr } = await entityQuery.order('next_test_date', { ascending: true })
+  const { data: dueEntities, error: dueErr } = await entityQuery.order('next_test_date', { ascending: true, nullsFirst: false })
   if (dueErr) throw dueErr
 
-  // Sort: overdue first (by days overdue desc), then due today
+  // Sort: overdue first (by days overdue desc), then due today, then non-due
+  // (rapid-fire mode includes entities with no next_test_date — keep them last).
   const sorted = (dueEntities || []).sort((a, b) => {
+    if (!a.next_test_date && !b.next_test_date) return 0
+    if (!a.next_test_date) return 1
+    if (!b.next_test_date) return -1
     const aDate = new Date(a.next_test_date).getTime()
     const bDate = new Date(b.next_test_date).getTime()
     return aDate - bDate // oldest first = most overdue first
@@ -612,12 +676,13 @@ export async function assembleQueue(
     })
   }
 
-  // Cap based on session type
-  const cap = sessionType === 'short' ? 20
+  // Cap based on session type — explicit count override wins (rapid-fire).
+  const defaultCap = sessionType === 'short' ? 20
     : sessionType === 'weekend' ? 40
     : sessionType === 'topic_study' ? Infinity
     : sessionType === 'weak_items' ? 15
     : 30 // reviews
+  const cap = typeof options.count === 'number' && options.count > 0 ? options.count : defaultCap
 
   // Pre-tests are always included, cap applies to regular queue only
   const pretestCount = queue.filter(q => q.is_pretest).length
