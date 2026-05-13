@@ -40,6 +40,14 @@ export async function callClaude(
     messages: [{ role: 'user', content: userMessage }],
   })
 
+  if (message.stop_reason === 'max_tokens') {
+    console.warn(
+      `[callClaude] Response truncated at max_tokens=${maxTokens}. ` +
+        `Consider bumping the budget for this prompt. ` +
+        `First 120 chars of system: ${systemPrompt.substring(0, 120)}`
+    )
+  }
+
   const block = message.content[0]
   if (block.type === 'text') {
     return block.text

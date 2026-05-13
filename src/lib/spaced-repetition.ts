@@ -1,4 +1,4 @@
-import type { Entity, TestResult, DifficultyLevel } from './types'
+import type { Entity, TestResult, DifficultyLevel, Priority } from './types'
 
 /** SM-2 adapted intervals for RadLoop */
 const STREAK_INTERVALS: Record<number, number> = {
@@ -14,6 +14,15 @@ const DIFFICULTY_MULTIPLIER: Record<DifficultyLevel, number> = {
   2: 0.85,
   3: 0.7,
 }
+
+/** Priority compresses intervals — vital items recycle ~2× faster */
+const PRIORITY_MULTIPLIER: Record<Priority, number> = {
+  normal: 1.0,
+  vital: 0.5,
+}
+
+/** Vital items never archive — cap their fourth-correct interval instead */
+const VITAL_MAX_INTERVAL_DAYS = 30
 
 interface SpacedRepetitionUpdate {
   correct_streak: number
@@ -53,12 +62,14 @@ export function checkMasteryDecay(
 }
 
 export function calculateNextReview(
-  entity: Pick<Entity, 'correct_streak' | 'difficulty_level' | 'status' | 'cycle_count' | 'last_tested'>,
+  entity: Pick<Entity, 'correct_streak' | 'difficulty_level' | 'status' | 'cycle_count' | 'last_tested'> & { priority?: Priority },
   result: TestResult
 ): SpacedRepetitionUpdate {
   const now = new Date()
   const today = now.toISOString().split('T')[0]
   let { correct_streak, difficulty_level, cycle_count } = entity
+  const priority: Priority = entity.priority ?? 'normal'
+  const priorityMult = PRIORITY_MULTIPLIER[priority]
 
   // If long gap since last test (>30 days), reset cycle for gentler re-entry
   if (entity.last_tested) {
@@ -75,6 +86,18 @@ export function calculateNextReview(
     correct_streak += 1
 
     if (correct_streak >= 4) {
+      // Vital items never fully archive — cap interval and keep them active-ish
+      if (priority === 'vital') {
+        const nextDate = addDays(today, Math.max(1, Math.round(VITAL_MAX_INTERVAL_DAYS * priorityMult)))
+        return {
+          correct_streak: 4,
+          next_test_date: nextDate,
+          status: 'solid',
+          difficulty_level,
+          last_tested: now.toISOString(),
+          cycle_count,
+        }
+      }
       return {
         correct_streak: 4,
         next_test_date: null,
@@ -86,8 +109,8 @@ export function calculateNextReview(
     }
 
     const baseDays = STREAK_INTERVALS[correct_streak - 1] ?? 16
-    const multiplier = DIFFICULTY_MULTIPLIER[difficulty_level] ?? 1
-    const daysToAdd = Math.max(1, Math.round(baseDays * multiplier))
+    const diffMult = DIFFICULTY_MULTIPLIER[difficulty_level] ?? 1
+    const daysToAdd = Math.max(1, Math.round(baseDays * diffMult * priorityMult))
     const nextDate = addDays(today, daysToAdd)
 
     return {
@@ -103,8 +126,8 @@ export function calculateNextReview(
   if (result === 'partial') {
     // Streak unchanged, +2 days (difficulty-adjusted)
     const baseDays = 2
-    const multiplier = DIFFICULTY_MULTIPLIER[difficulty_level] ?? 1
-    const daysToAdd = Math.max(1, Math.round(baseDays * multiplier))
+    const diffMult = DIFFICULTY_MULTIPLIER[difficulty_level] ?? 1
+    const daysToAdd = Math.max(1, Math.round(baseDays * diffMult * priorityMult))
     const nextDate = addDays(today, daysToAdd)
     return {
       correct_streak,

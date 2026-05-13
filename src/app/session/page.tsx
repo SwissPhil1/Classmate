@@ -210,7 +210,7 @@ function SessionContent() {
     setQuestionLoading(true);
     setQuestionError(false);
     try {
-      const entity = await getEntity(supabase, item.entity_id);
+      const entity = await getEntity(supabase, item.entity_id, user!.id);
       setCurrentEntity(entity);
 
       // Fetch images for this entity
@@ -379,6 +379,7 @@ function SessionContent() {
         // Save test result
         await createTestResult(supabase, {
           entity_id: currentEntity.id,
+          user_id: user!.id,
           session_id: sessionId,
           question_text: currentQuestion.question,
           question_type: currentQuestion.type,
@@ -439,6 +440,7 @@ function SessionContent() {
                 const { upsertBrief } = await import("@/lib/supabase/queries");
                 await upsertBrief(supabase, {
                   entity_id: currentEntity.id,
+                  user_id: user!.id,
                   content: briefData.content,
                   qa_pairs: briefData.qa_pairs,
                   difficulty_level: currentEntity.difficulty_level,

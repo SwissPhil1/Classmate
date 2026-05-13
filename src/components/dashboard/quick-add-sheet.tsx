@@ -128,7 +128,8 @@ export function QuickAddSheet({ open, onClose }: QuickAddSheetProps) {
     }
     setEnriching(true);
     try {
-      const entity = await getEntity(supabase, entityId);
+      if (!user) return;
+      const entity = await getEntity(supabase, entityId, user.id);
       const existingRef = entity.reference_text || "";
       const newRef = existingRef
         ? `${existingRef}\n\n--- AJOUT ---\n${referenceText.trim()}`

@@ -1,13 +1,19 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { X, ChevronLeft, ChevronRight, Trash2, Pencil, Check } from "lucide-react";
-import type { EntityImage, ImageModality } from "@/lib/types";
+import { useState, useCallback, useEffect } from "react";
+import { motion, AnimatePresence, type PanInfo } from "framer-motion";
+import { X, ChevronLeft, ChevronRight, Trash2, Pencil, Star, ArrowUp, ArrowDown, Sparkles, AlertCircle, Loader2 } from "lucide-react";
+import type { EntityImage } from "@/lib/types";
+import type { EntityImagePatch } from "@/lib/supabase/queries";
+import { ImageEditModal } from "./image-edit-modal";
 
 interface ImageGalleryProps {
   images: EntityImage[];
   onDelete?: (imageId: string) => void;
-  onUpdateCaption?: (imageId: string, caption: string | null, modality: ImageModality | null) => void;
+  onSave?: (imageId: string, patch: EntityImagePatch) => Promise<void> | void;
+  onSetCover?: (imageId: string) => Promise<void> | void;
+  onReorder?: (imageId: string, direction: -1 | 1) => Promise<void> | void;
+  onReanalyze?: (imageId: string) => Promise<void> | void;
   compact?: boolean;
 }
 
@@ -16,13 +22,51 @@ const MODALITY_COLORS: Record<string, string> = {
   IRM: "bg-purple-500/20 text-purple-400",
   RX: "bg-amber-500/20 text-amber-400",
   US: "bg-green-500/20 text-green-400",
+  UIV: "bg-cyan-500/20 text-cyan-400",
+  angio: "bg-rose-500/20 text-rose-400",
   autre: "bg-gray-500/20 text-gray-400",
 };
 
-export function ImageGallery({ images, onDelete, onUpdateCaption, compact = false }: ImageGalleryProps) {
+function displayLabel(image: EntityImage, fallbackIndex: number): string {
+  return image.display_name || image.caption || `Image ${fallbackIndex + 1}`;
+}
+
+function AIBriefBadge({ status }: { status: EntityImage["ai_brief_status"] }) {
+  if (status === "done") {
+    return (
+      <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-teal/90 text-white text-[10px] font-semibold rounded">
+        <Sparkles className="w-2.5 h-2.5" /> brief
+      </span>
+    );
+  }
+  if (status === "analyzing" || status === "pending") {
+    return (
+      <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-background/90 border border-border text-muted-foreground text-[10px] font-medium rounded">
+        <Loader2 className="w-2.5 h-2.5 animate-spin" /> analyse
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-wrong/90 text-white text-[10px] font-semibold rounded">
+        <AlertCircle className="w-2.5 h-2.5" /> err
+      </span>
+    );
+  }
+  return null;
+}
+
+export function ImageGallery({
+  images,
+  onDelete,
+  onSave,
+  onSetCover,
+  onReorder,
+  onReanalyze,
+  compact = false,
+}: ImageGalleryProps) {
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editCaption, setEditCaption] = useState("");
+  const [editingImage, setEditingImage] = useState<EntityImage | null>(null);
 
   const openFullscreen = useCallback((index: number) => {
     setFullscreenIndex(index);
@@ -34,184 +78,273 @@ export function ImageGallery({ images, onDelete, onUpdateCaption, compact = fals
 
   const navigateFullscreen = useCallback(
     (direction: -1 | 1) => {
-      if (fullscreenIndex === null) return;
-      const next = fullscreenIndex + direction;
-      if (next >= 0 && next < images.length) {
-        setFullscreenIndex(next);
-      }
+      setFullscreenIndex((current) => {
+        if (current === null) return null;
+        const next = current + direction;
+        if (next < 0 || next >= images.length) return current;
+        return next;
+      });
     },
-    [fullscreenIndex, images.length]
+    [images.length]
   );
 
-  const handleStartEdit = (image: EntityImage) => {
-    setEditingId(image.id);
-    setEditCaption(image.caption || "");
-  };
+  // Keyboard navigation in fullscreen.
+  useEffect(() => {
+    if (fullscreenIndex === null) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") navigateFullscreen(-1);
+      else if (e.key === "ArrowRight") navigateFullscreen(1);
+      else if (e.key === "Escape") closeFullscreen();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [fullscreenIndex, navigateFullscreen, closeFullscreen]);
 
-  const handleSaveEdit = (image: EntityImage) => {
-    onUpdateCaption?.(image.id, editCaption.trim() || null, image.modality);
-    setEditingId(null);
+  const handleSwipe = (_: unknown, info: PanInfo) => {
+    if (info.offset.x < -60) navigateFullscreen(1);
+    else if (info.offset.x > 60) navigateFullscreen(-1);
   };
 
   if (images.length === 0) return null;
 
+  // Responsive grid: 2/3/4 columns. Compact mode: always 3.
+  const gridCols = compact
+    ? "grid-cols-3"
+    : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4";
+
   return (
     <>
-      {/* Grid */}
-      <div className={`grid gap-2 ${images.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
-        {images.map((image, index) => (
-          <div key={image.id} className="relative group">
-            <button
-              onClick={() => openFullscreen(index)}
-              className="w-full focus:outline-none focus:ring-2 focus:ring-teal rounded-lg"
-            >
-              <img
-                src={image.url || ""}
-                alt={image.caption || "Image radiologique"}
-                className={`w-full object-cover rounded-lg border border-border bg-background ${
-                  compact ? "h-24" : images.length === 1 ? "max-h-64 object-contain" : "h-32"
-                }`}
-              />
-            </button>
-
-            {/* Modality badge */}
-            {image.modality && (
-              <span
-                className={`absolute top-1.5 left-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                  MODALITY_COLORS[image.modality] || MODALITY_COLORS.autre
-                }`}
+      <div className={`grid gap-2 ${gridCols}`}>
+        {images.map((image, index) => {
+          const label = displayLabel(image, index);
+          const visibleTags = image.tags.slice(0, 3);
+          const overflowTags = image.tags.length - visibleTags.length;
+          return (
+            <div key={image.id} className="relative group">
+              <button
+                onClick={() => openFullscreen(index)}
+                className="block w-full focus:outline-none focus:ring-2 focus:ring-teal rounded-lg"
               >
-                {image.modality}
-              </span>
-            )}
+                <img
+                  src={image.url || ""}
+                  alt={label}
+                  className={`w-full object-cover rounded-lg border border-border bg-background ${
+                    compact ? "h-20" : "h-28 sm:h-32"
+                  }`}
+                />
+              </button>
 
-            {/* Caption */}
-            {image.caption && !compact && (
-              <p className="text-[10px] text-muted-foreground mt-1 truncate px-0.5">
-                {image.caption}
-              </p>
-            )}
+              {/* Cover badge */}
+              {image.is_cover && (
+                <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-500/90 text-white text-[10px] font-semibold rounded">
+                  <Star className="w-2.5 h-2.5 fill-current" /> cover
+                </span>
+              )}
 
-            {/* Edit/Delete overlay */}
-            {(onDelete || onUpdateCaption) && (
-              <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                {onUpdateCaption && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleStartEdit(image);
-                    }}
-                    className="p-1 bg-background/80 border border-border rounded hover:bg-card transition-colors"
-                  >
-                    <Pencil className="w-3 h-3 text-muted-foreground" />
-                  </button>
-                )}
-                {onDelete && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete(image.id);
-                    }}
-                    className="p-1 bg-background/80 border border-border rounded hover:bg-wrong/10 transition-colors"
-                  >
-                    <Trash2 className="w-3 h-3 text-wrong" />
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
+              {/* Modality badge */}
+              {image.modality && !image.is_cover && (
+                <span
+                  className={`absolute top-1.5 left-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                    MODALITY_COLORS[image.modality] || MODALITY_COLORS.autre
+                  }`}
+                >
+                  {image.modality}
+                  {image.sequence ? ` · ${image.sequence}` : ""}
+                </span>
+              )}
+
+              {/* AI brief status badge — bottom-left, doesn't overlap modality */}
+              <AIBriefBadge status={image.ai_brief_status} />
+
+
+              {/* Action overlay — always visible on touch devices (iPad-first). */}
+              {(onSave || onDelete || onReorder) && (
+                <div className="absolute top-1.5 right-1.5 flex gap-1 transition-opacity">
+                  {onReorder && index > 0 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void onReorder(image.id, -1);
+                      }}
+                      className="p-1 bg-background/90 border border-border rounded hover:bg-card transition-colors"
+                      aria-label="Monter"
+                    >
+                      <ArrowUp className="w-3 h-3 text-muted-foreground" />
+                    </button>
+                  )}
+                  {onReorder && index < images.length - 1 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void onReorder(image.id, 1);
+                      }}
+                      className="p-1 bg-background/90 border border-border rounded hover:bg-card transition-colors"
+                      aria-label="Descendre"
+                    >
+                      <ArrowDown className="w-3 h-3 text-muted-foreground" />
+                    </button>
+                  )}
+                  {onSave && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingImage(image);
+                      }}
+                      className="p-1 bg-background/90 border border-border rounded hover:bg-card transition-colors"
+                      aria-label="Éditer"
+                    >
+                      <Pencil className="w-3 h-3 text-muted-foreground" />
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(image.id);
+                      }}
+                      className="p-1 bg-background/90 border border-border rounded hover:bg-wrong/10 transition-colors"
+                      aria-label="Supprimer"
+                    >
+                      <Trash2 className="w-3 h-3 text-wrong" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Caption + tags below thumbnail */}
+              {!compact && (
+                <div className="mt-1 px-0.5 space-y-0.5">
+                  <p className="text-[11px] text-foreground font-medium truncate">{label}</p>
+                  {visibleTags.length > 0 && (
+                    <div className="flex flex-wrap gap-0.5">
+                      {visibleTags.map((t) => (
+                        <span
+                          key={t}
+                          className="px-1.5 py-0 rounded-full bg-teal/10 text-teal text-[9px] font-medium"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                      {overflowTags > 0 && (
+                        <span className="px-1.5 py-0 rounded-full bg-card border border-border text-muted-foreground text-[9px]">
+                          +{overflowTags}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      {/* Caption edit inline */}
-      {editingId && (
-        <div className="flex items-center gap-2 mt-2">
-          <input
-            type="text"
-            value={editCaption}
-            onChange={(e) => setEditCaption(e.target.value)}
-            placeholder="Légende..."
-            className="flex-1 h-8 bg-background border border-border rounded-lg px-2 text-xs text-foreground"
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const img = images.find((i) => i.id === editingId);
-                if (img) handleSaveEdit(img);
-              }
-            }}
-          />
-          <button
-            onClick={() => {
-              const img = images.find((i) => i.id === editingId);
-              if (img) handleSaveEdit(img);
-            }}
-            className="p-1.5 bg-teal/10 text-teal rounded-lg hover:bg-teal/20 transition-colors"
-          >
-            <Check className="w-3.5 h-3.5" />
-          </button>
-        </div>
+      {/* Edit modal */}
+      {editingImage && onSave && (
+        <ImageEditModal
+          image={editingImage}
+          onReanalyze={onReanalyze}
+          onSave={async (patch) => {
+            const turningOn = patch.is_cover && !editingImage.is_cover;
+            const turningOff = !patch.is_cover && editingImage.is_cover;
+
+            // Apply non-cover fields first (always safe vs the partial unique index).
+            const { is_cover: _ignored, ...rest } = patch;
+            void _ignored;
+            await onSave(editingImage.id, rest);
+
+            if (turningOn && onSetCover) {
+              // Two sequential UPDATEs (clear old, set new) to avoid colliding
+              // with idx_entity_images_cover_per_entity.
+              await onSetCover(editingImage.id);
+            } else if (turningOff) {
+              // Clearing cover never collides — single UPDATE is enough.
+              await onSave(editingImage.id, { is_cover: false });
+            }
+          }}
+          onClose={() => setEditingImage(null)}
+        />
       )}
 
-      {/* Fullscreen modal */}
-      {fullscreenIndex !== null && (
-        <div
-          className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
-          onClick={closeFullscreen}
-        >
-          {/* Close button */}
-          <button
+      {/* Fullscreen lightbox */}
+      <AnimatePresence>
+        {fullscreenIndex !== null && images[fullscreenIndex] && (
+          <motion.div
+            key="lightbox"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
             onClick={closeFullscreen}
-            className="absolute top-4 right-4 z-10 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
           >
-            <X className="w-6 h-6 text-white" />
-          </button>
-
-          {/* Navigation */}
-          {images.length > 1 && fullscreenIndex > 0 && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                navigateFullscreen(-1);
-              }}
-              className="absolute left-4 z-10 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
+              onClick={closeFullscreen}
+              className="absolute top-4 right-4 z-10 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
+              aria-label="Fermer"
             >
-              <ChevronLeft className="w-6 h-6 text-white" />
+              <X className="w-6 h-6 text-white" />
             </button>
-          )}
-          {images.length > 1 && fullscreenIndex < images.length - 1 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                navigateFullscreen(1);
-              }}
-              className="absolute right-4 z-10 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
-            >
-              <ChevronRight className="w-6 h-6 text-white" />
-            </button>
-          )}
 
-          {/* Image */}
-          <img
-            src={images[fullscreenIndex].url || ""}
-            alt={images[fullscreenIndex].caption || "Image radiologique"}
-            className="max-w-[95vw] max-h-[90vh] object-contain select-none"
-            onClick={(e) => e.stopPropagation()}
-            style={{ touchAction: "pinch-zoom" }}
-          />
-
-          {/* Caption + counter */}
-          <div className="absolute bottom-4 left-0 right-0 text-center space-y-1">
-            {images[fullscreenIndex].caption && (
-              <p className="text-sm text-white/80">{images[fullscreenIndex].caption}</p>
+            {images.length > 1 && fullscreenIndex > 0 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigateFullscreen(-1);
+                }}
+                className="absolute left-4 z-10 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
+                aria-label="Précédent"
+              >
+                <ChevronLeft className="w-6 h-6 text-white" />
+              </button>
             )}
-            {images.length > 1 && (
-              <p className="text-xs text-white/50">
-                {fullscreenIndex + 1} / {images.length}
+            {images.length > 1 && fullscreenIndex < images.length - 1 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigateFullscreen(1);
+                }}
+                className="absolute right-4 z-10 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
+                aria-label="Suivant"
+              >
+                <ChevronRight className="w-6 h-6 text-white" />
+              </button>
+            )}
+
+            <motion.img
+              key={images[fullscreenIndex].id}
+              src={images[fullscreenIndex].url || ""}
+              alt={displayLabel(images[fullscreenIndex], fullscreenIndex)}
+              initial={{ opacity: 0, x: 30 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -30 }}
+              transition={{ duration: 0.18 }}
+              drag={images.length > 1 ? "x" : false}
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.2}
+              onDragEnd={handleSwipe}
+              className="max-w-[95vw] max-h-[90vh] object-contain select-none"
+              onClick={(e) => e.stopPropagation()}
+              style={{ touchAction: "pinch-zoom" }}
+            />
+
+            <div className="absolute bottom-4 left-0 right-0 text-center space-y-1 px-4">
+              <p className="text-sm text-white font-medium">
+                {displayLabel(images[fullscreenIndex], fullscreenIndex)}
               </p>
-            )}
-          </div>
-        </div>
-      )}
+              {images[fullscreenIndex].caption &&
+                images[fullscreenIndex].caption !== images[fullscreenIndex].display_name && (
+                  <p className="text-xs text-white/70">{images[fullscreenIndex].caption}</p>
+                )}
+              {images.length > 1 && (
+                <p className="text-xs text-white/50">
+                  {fullscreenIndex + 1} / {images.length}
+                </p>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }
